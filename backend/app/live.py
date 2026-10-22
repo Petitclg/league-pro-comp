@@ -4,11 +4,9 @@ The League client exposes a local HTTPS API (LCU) whose port and password are wr
 `lockfile` of the install directory. Nothing leaves your machine except the public Data Dragon
 request used to turn champion ids into names.
 """
-import json
 import os
 import re
 import subprocess
-import uuid
 from pathlib import Path
 
 import httpx
@@ -172,89 +170,3 @@ def send_lobby_messages(lines: dict[str, str]) -> list[str]:
             _sent[role] = text
             posted.append(text)
     return posted
-
-
-TAG = "[Pro]"  # prefix of the item sets and rune page this app writes, so it only ever replaces its own
-SUMMONERS_RIFT_MAP = 11
-_imported: dict[str, str] = {}  # champion -> fingerprint of the last build written to the client
-
-
-def item_set_payload(build: dict, champion_id: int) -> dict | None:
-    blocks = [
-        {"type": b["type"], "items": [{"id": str(i["id"]), "count": 1} for i in b["items"]]}
-        for b in build["item_blocks"] if b["items"]
-    ]
-    if not blocks:
-        return None
-    return {
-        "title": f"{TAG} {build['champion']} {build['role']} ({build['games']} games)",
-        "type": "custom", "map": "any", "mode": "any", "sortrank": 0, "startedFrom": "blank",
-        "associatedChampions": [champion_id], "associatedMaps": [SUMMONERS_RIFT_MAP],
-        "preferredItemSlots": [], "blocks": blocks, "uid": str(uuid.uuid4()),
-    }
-
-
-def rune_page_payload(build: dict) -> dict | None:
-    page = next((p for p in build["runes"] if p["ids"] and p["primary_style_id"] and p["sub_style_id"]), None)
-    if not page:
-        return None
-    return {
-        "name": f"{TAG} {build['champion']}"[:25], "primaryStyleId": page["primary_style_id"],
-        "subStyleId": page["sub_style_id"], "selectedPerkIds": page["ids"], "current": True,
-    }
-
-
-def import_build(build: dict) -> dict:
-    """Write the build into the running client as an item set and a rune page; returns a status per part.
-
-    Only item sets of the same champion and rune pages whose name starts with `TAG` are replaced.
-    A rune page is created only when the account has a free slot."""
-    champion_id = next((cid for cid, name in champion_names().items() if name == build["champion"]), None)
-    if champion_id is None:
-        return {"sent": False, "reason": f"Champion inconnu : {build['champion']}"}
-    items = item_set_payload(build, champion_id)
-    runes = rune_page_payload(build)
-    if not items and not runes:
-        return {"sent": False, "reason": "Rien à importer (pas de données d'items ni de runes pour ce champion)."}
-    fingerprint = json.dumps([items and items["blocks"], runes and runes["selectedPerkIds"]])
-    if _imported.get(build["champion"]) == fingerprint:
-        return {"sent": False, "skipped": True, "reason": "Déjà importé."}
-    creds = find_credentials()
-    if not creds:
-        return {"sent": False, "reason": "Client League of Legends introuvable."}
-    port, password = creds
-    status: dict[str, str] = {}
-    with httpx.Client(base_url=f"https://127.0.0.1:{port}", auth=("riot", password), verify=False, timeout=5) as client:
-        if items:
-            summoner = client.get("/lol-summoner/v1/current-summoner")
-            summoner.raise_for_status()
-            path = f"/lol-item-sets/v1/item-sets/{summoner.json()['summonerId']}/sets"
-            current = client.get(path)
-            current.raise_for_status()
-            data = current.json()
-            kept = [s for s in data.get("itemSets", [])
-                    if not (str(s.get("title", "")).startswith(TAG) and s.get("associatedChampions") == [champion_id])]
-            client.put(path, json={**data, "itemSets": kept + [items]}).raise_for_status()
-            status["items"] = "ok"
-        if runes:
-            status["runes"] = _write_rune_page(client, runes)
-    if "ok" in status.values():
-        _imported[build["champion"]] = fingerprint
-    return {"sent": "ok" in status.values(), **status}
-
-
-def _write_rune_page(client: httpx.Client, page: dict) -> str:
-    pages = client.get("/lol-perks/v1/pages")
-    pages.raise_for_status()
-    editable = [p for p in pages.json() if p.get("isEditable")]
-    ours = next((p for p in editable if str(p.get("name", "")).startswith(TAG)), None)
-    if ours:
-        client.put(f"/lol-perks/v1/pages/{ours['id']}", json=page).raise_for_status()
-        client.put("/lol-perks/v1/currentpage", json=ours["id"])
-        return "ok"
-    owned = client.get("/lol-perks/v1/inventory")
-    owned.raise_for_status()
-    if len(editable) >= owned.json().get("ownedPageCount", 0):
-        return "Aucune page de runes libre : en supprimer une dans le client."
-    client.post("/lol-perks/v1/pages", json=page).raise_for_status()
-    return "ok"

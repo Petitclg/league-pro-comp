@@ -40,6 +40,18 @@ def test_v2_database_is_migrated_and_keeps_its_lck_games(tmp_path):
     assert connect(path).execute("SELECT COUNT(*) FROM games").fetchone()[0] == 1  # idempotent
 
 
+def test_database_of_a_newer_version_is_left_untouched(tmp_path):
+    path = tmp_path / "newer.db"
+    conn = connect(path)
+    conn.execute("INSERT INTO games (game_id, team1, team2) VALUES ('G1', 'A', 'B')")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+    reopened = connect(path)
+    assert reopened.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 1
+    assert reopened.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION + 1
+
+
 def _two_league_db():
     """A third of the series (whole series, never split) belongs to the LPL, the rest to the LCK."""
     conn = build_db(60)

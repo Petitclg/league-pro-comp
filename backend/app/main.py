@@ -7,8 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import gamedata, importer, live, runtime, stats
-from .builds import champion_build
+from . import importer, live, runtime, stats
 from .config import APP_NAME, STATIC_DIR, VERSION
 from .dataset import Dataset, Filters, get_dataset, league_summary
 from .db import ROLES
@@ -307,41 +306,6 @@ def send_recos(req: LobbyRecoRequest, ds: DS):
     except Exception as exc:  # the client API is local and best-effort
         return {"sent": False, "messages": list(lines.values()), "reason": str(exc)}
     return {"sent": bool(posted), "messages": posted}
-
-
-class BuildRequest(SuggestRequest):
-    champion: str
-    role: str
-
-    @field_validator("role")
-    @classmethod
-    def valid_role(cls, role):
-        if role not in ROLES:
-            raise ValueError(f"Unknown role: {role}")
-        return role
-
-
-def _build(req: BuildRequest, ds) -> dict:
-    f = Filters(teams=tuple(req.teams), tournaments=tuple(req.tournaments), years=tuple(req.years),
-                patches=tuple(req.patches), fearless=req.fearless)
-    return champion_build(ds.filter_comps(f), req.champion, req.role, req.picks, req.enemy,
-                          gamedata.load_catalog())
-
-
-@app.post("/api/build")
-def build(req: BuildRequest, ds: DS):
-    """Items, runes and spells the pros played with a champion, from games like the current draft."""
-    return _build(req, ds)
-
-
-@app.post("/api/live/import-build")
-def import_build(req: BuildRequest, ds: DS):
-    """Write that build into the League client (item set and rune page)."""
-    built = _build(req, ds)
-    try:
-        return live.import_build(built)
-    except Exception as exc:  # the client API is local and best-effort
-        return {"sent": False, "reason": str(exc)}
 
 
 @app.get("/api/live")

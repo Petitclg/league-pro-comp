@@ -7,7 +7,7 @@ ROLES = ["top", "jungle", "mid", "bot", "support"]
 
 DB_PATH = DATA_DIR / "lck.db"
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS matches (
@@ -62,13 +62,6 @@ CREATE TABLE IF NOT EXISTS picks (
     cs INTEGER,
     damage INTEGER,
     vision INTEGER,
-    items TEXT,
-    trinket TEXT,
-    keystone TEXT,
-    primary_tree TEXT,
-    secondary_tree TEXT,
-    runes TEXT,
-    spells TEXT,
     PRIMARY KEY (game_id, side, pick_order)
 );
 CREATE TABLE IF NOT EXISTS bans (
@@ -85,23 +78,14 @@ CREATE INDEX IF NOT EXISTS idx_picks_champion ON picks(champion);
 """
 
 PICK_STAT_FIELDS = ["player", "kills", "deaths", "assists", "gold", "cs", "damage", "vision"]
-# Loadout of the pick: items and runes are `;`-joined / `,`-joined names, in the order Leaguepedia lists them.
-PICK_BUILD_FIELDS = ["items", "trinket", "keystone", "primary_tree", "secondary_tree", "runes", "spells"]
 
 
 def _migrate(conn: sqlite3.Connection, version: int) -> None:
     """Bring an existing database up to SCHEMA_VERSION."""
-    if version in (2, 3):
-        if version == 2:
-            # v2 held LCK only: add the league column, existing rows are LCK
-            for table in ("games", "matches"):
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN league TEXT NOT NULL DEFAULT 'LCK'")
-        # v4 added the loadout; games imported before it get it when they are imported again
-        have = {r[1] for r in conn.execute("PRAGMA table_info(picks)")}
-        if have:
-            for column in PICK_BUILD_FIELDS:
-                if column not in have:
-                    conn.execute(f"ALTER TABLE picks ADD COLUMN {column} TEXT")
+    if version == 2:
+        # v2 held LCK only: add the league column, existing rows are LCK
+        for table in ("games", "matches"):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN league TEXT NOT NULL DEFAULT 'LCK'")
     elif version != 0:
         # Unknown older schema: it only held disposable imported data, rebuild it.
         for table in ("bans", "picks", "game_sides", "games", "matches"):
@@ -115,7 +99,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version != SCHEMA_VERSION:
+    if version < SCHEMA_VERSION:  # a newer database (v0.2.6 wrote v4, with extra picks columns) is used as it is
         _migrate(conn, version)
         conn.executescript(SCHEMA)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -171,11 +155,10 @@ def save_game(conn: sqlite3.Connection, game: dict) -> None:
     for p in game["picks"]:
         conn.execute(
             "INSERT INTO picks (game_id, side, pick_order, role, champion, player, kills,"
-            " deaths, assists, gold, cs, damage, vision, items, trinket, keystone, primary_tree,"
-            " secondary_tree, runes, spells)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " deaths, assists, gold, cs, damage, vision)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (game["game_id"], p["side"], p["pick_order"], p["role"], p["champion"],
-             *(p.get(k) for k in PICK_STAT_FIELDS), *(p.get(k) for k in PICK_BUILD_FIELDS)),
+             *(p.get(k) for k in PICK_STAT_FIELDS)),
         )
     conn.executemany(
         "INSERT INTO bans (game_id, side, slot, champion) VALUES (?, ?, ?, ?)",

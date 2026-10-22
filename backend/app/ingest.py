@@ -46,8 +46,7 @@ GAME_FIELDS = (
     + [f"SG.Team{t}{k}" for t in (1, 2) for k in ("Kills", "Gold", "Towers", "Dragons", "Barons")]
 )
 PLAYER_FIELDS = [f"SP.{f}" for f in ("GameId", "Link", "Team", "Champion", "Role", "Side", "Kills", "Deaths",
-                                     "Assists", "Gold", "CS", "DamageToChampions", "VisionScore", "Items", "Trinket",
-                                     "KeystoneRune", "PrimaryTree", "SecondaryTree", "Runes", "SummonerSpells")]
+                                     "Assists", "Gold", "CS", "DamageToChampions", "VisionScore")]
 MATCH_FIELDS = [f"MS.{f}" for f in ("MatchId", "BestOf", "Team1", "Team2", "Team1Score", "Team2Score",
                                     "Winner", "OverviewPage", "Tab", "DateTime_UTC")]
 
@@ -68,10 +67,6 @@ def _float(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _clean(value: str | None) -> str | None:
-    return (value or "").strip() or None
 
 
 def parse_game(row: dict, players: dict[tuple[int, str], dict] | None = None) -> dict | None:
@@ -101,10 +96,6 @@ def parse_game(row: dict, players: dict[tuple[int, str], dict] | None = None) ->
                 "assists": _int(stats.get("Assists")), "gold": _int(stats.get("Gold")),
                 "cs": _int(stats.get("CS")), "damage": _int(stats.get("DamageToChampions")),
                 "vision": _int(stats.get("VisionScore")),
-                "items": _clean(stats.get("Items")), "trinket": _clean(stats.get("Trinket")),
-                "keystone": _clean(stats.get("KeystoneRune")), "primary_tree": _clean(stats.get("PrimaryTree")),
-                "secondary_tree": _clean(stats.get("SecondaryTree")), "runes": _clean(stats.get("Runes")),
-                "spells": _clean(stats.get("SummonerSpells")),
             })
         if len({p["role"] for p in side_picks}) != 5:
             return None

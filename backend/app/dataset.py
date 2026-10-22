@@ -6,7 +6,6 @@ A tournament is flagged Fearless when (almost) none of its multi-game series rep
 champion, so the flag comes from the data rather than from hard-coded dates.
 """
 import sqlite3
-import sys
 import threading
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable
@@ -43,22 +42,6 @@ class Filters:
 
 def _empty_side() -> dict:
     return {"team": None, "win": None, "bans": [], "ban_order": [], "picks": [], "stats": {}}
-
-
-def _names(value: str | None, sep: str) -> tuple[str, ...]:
-    return tuple(sys.intern(v.strip()) for v in (value or "").split(sep) if v.strip())
-
-
-def _loadout(r: sqlite3.Row) -> dict | None:
-    """Items, runes and spells of a pick row (names), or None when the game was imported without them."""
-    keys = r.keys()
-    if "items" not in keys or not (r["items"] or r["runes"]):
-        return None
-    return {
-        "items": _names(r["items"], ";"), "trinket": r["trinket"], "keystone": r["keystone"],
-        "primary_tree": r["primary_tree"], "secondary_tree": r["secondary_tree"],
-        "runes": _names(r["runes"], ","), "spells": _names(r["spells"], ","),
-    }
 
 
 class Dataset:
@@ -177,7 +160,6 @@ def _comps_of(g: dict) -> list[dict]:
     comps = []
     for side in (1, 2):
         s, o = g["sides"][side], g["sides"][3 - side]
-        s_roles = [p["role"] for p in s["picks"]]
         comps.append({
             "game_id": g["game_id"],
             "side": side,
@@ -193,7 +175,6 @@ def _comps_of(g: dict) -> list[dict]:
             "picks": {p["role"]: p["champion"] for p in s["picks"]},
             "enemy": {p["role"]: p["champion"] for p in o["picks"]},
             "players": {p["role"]: p for p in s["picks"]},
-            "loadouts": {role: lo for role in s_roles if (lo := g["loadouts"].get((side, role)))},
         })
     return comps
 
@@ -226,7 +207,7 @@ def load(conn: sqlite3.Connection, league: "str | Iterable[str] | None" = None) 
             s["team"] = g[f"team{side}"]
             s["win"] = None if g["winner"] is None else g["winner"] == side
             sides[side] = s
-        games[g["game_id"]] = {**g, "sides": sides, "loadouts": {}}
+        games[g["game_id"]] = {**g, "sides": sides}
     for r in query("t.*", "game_sides"):
         if r["game_id"] in games:
             games[r["game_id"]]["sides"][r["side"]]["stats"] = {
@@ -244,8 +225,6 @@ def load(conn: sqlite3.Connection, league: "str | Iterable[str] | None" = None) 
                 "kills": r["kills"], "deaths": r["deaths"], "assists": r["assists"],
                 "gold": r["gold"], "cs": r["cs"], "damage": r["damage"], "vision": r["vision"],
             })
-            if loadout := _loadout(r):
-                g["loadouts"][(r["side"], r["role"])] = loadout
     for r in query("t.*", "bans", "ORDER BY t.game_id, t.side, t.slot"):
         g = games.get(r["game_id"])
         if g:

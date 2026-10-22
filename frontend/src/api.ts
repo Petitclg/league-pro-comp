@@ -383,24 +383,6 @@ export interface Suggestion {
   synergies: Synergy[]
 }
 
-export interface BuildResult {
-  champion: string
-  role: Role
-  games: number
-  similar_games: number
-  item_blocks: { type: string; items: { name: string; id: number; rate: number }[] }[]
-  runes: { keystone: string; primary_tree: string; secondary_tree: string; runes: string[]; share: number }[]
-  spells: string[]
-}
-
-export interface ImportResult {
-  sent: boolean
-  skipped?: boolean
-  reason?: string
-  items?: string
-  runes?: string
-}
-
 export interface SuggestResult {
   matching_comps: number
   unknown_picks: Role[]
@@ -495,18 +477,6 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(suggestPayload(body)),
-    }),
-  build: (body: SuggestBody & { champion: string; role: Role }) =>
-    request<BuildResult>(`/api/build${qs({ league: body.league })}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...suggestPayload(body), champion: body.champion, role: body.role }),
-    }),
-  importBuild: (body: SuggestBody & { champion: string; role: Role }) =>
-    request<ImportResult>(`/api/live/import-build${qs({ league: body.league })}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...suggestPayload(body), champion: body.champion, role: body.role }),
     }),
   sendRecos: (body: SuggestBody, myRole?: Role) =>
     request<{ sent: boolean; messages: string[]; reason?: string }>(
