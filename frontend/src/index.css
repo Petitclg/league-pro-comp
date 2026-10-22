@@ -1205,6 +1205,50 @@ a.rec-item:hover {
 .sugg small.bad-text {
   color: var(--bad);
 }
+.build-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 12px 0;
+}
+.build-panel.stale {
+  opacity: 0.6;
+}
+.build-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.build-head h3 {
+  margin: 0;
+}
+.build-blocks,
+.build-runes {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.build-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.build-items {
+  display: flex;
+  gap: 6px;
+}
+.build-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.build-item small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
 .similar {
   background: var(--panel);
   border: 1px solid var(--border);

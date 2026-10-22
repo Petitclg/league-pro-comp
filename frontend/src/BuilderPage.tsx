@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ROLES, ROLE_LABEL, selectedLeagues, type LiveState, type Role } from './api'
 import { Champ } from './Champ'
+import { BuildPanel } from './BuildPanel'
 import { ChampionSelect } from './ChampionSelect'
 import { useScope } from './scope'
 import { pct, useAsync, useDebounced } from './utils'
@@ -79,6 +80,7 @@ export function BuilderPage() {
   const [tracking, setTracking] = useState(false)
   const [sendToChat, setSendToChat] = useState(false)
   const [expand, setExpand] = useState(false)
+  const [autoImport, setAutoImport] = useState(false)
   const status = useTracker(tracking, (s) => {
     // Keep the same references when nothing changed, otherwise every poll would trigger a recompute.
     setPicks((prev) => (sameJson(prev, s.my_team ?? {}) ? prev : (s.my_team ?? {})))
@@ -131,6 +133,18 @@ export function BuilderPage() {
             onChange={(e) => setSendToChat(e.target.checked)}
           />
           Envoyer les recommandations dans le chat
+        </label>
+        <label
+          className="switch"
+          title="Écrit dans le client un set d'items et une page de runes (préfixe [Pro]) pour votre champion verrouillé"
+        >
+          <input
+            type="checkbox"
+            checked={autoImport}
+            disabled={!tracking}
+            onChange={(e) => setAutoImport(e.target.checked)}
+          />
+          Importer automatiquement le build pro de mon champion
         </label>
         <label
           className="switch"
@@ -208,6 +222,7 @@ export function BuilderPage() {
         )}
         {loading && <span className="computing"> Mise à jour…</span>}
       </p>
+      <BuildPanel request={request} locked={locked} myRole={myRole} autoImport={autoImport && inChampSelect} />
       {data && (
         <div className={loading ? 'results stale' : 'results'}>
           <div className="suggestions">

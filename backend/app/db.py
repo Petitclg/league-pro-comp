@@ -7,7 +7,7 @@ ROLES = ["top", "jungle", "mid", "bot", "support"]
 
 DB_PATH = DATA_DIR / "lck.db"
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS matches (
@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS picks (
     cs INTEGER,
     damage INTEGER,
     vision INTEGER,
+    items TEXT,
+    trinket TEXT,
+    keystone TEXT,
+    primary_tree TEXT,
+    secondary_tree TEXT,
+    runes TEXT,
+    spells TEXT,
     PRIMARY KEY (game_id, side, pick_order)
 );
 CREATE TABLE IF NOT EXISTS bans (
@@ -78,14 +85,23 @@ CREATE INDEX IF NOT EXISTS idx_picks_champion ON picks(champion);
 """
 
 PICK_STAT_FIELDS = ["player", "kills", "deaths", "assists", "gold", "cs", "damage", "vision"]
+# Loadout of the pick: items and runes are `;`-joined / `,`-joined names, in the order Leaguepedia lists them.
+PICK_BUILD_FIELDS = ["items", "trinket", "keystone", "primary_tree", "secondary_tree", "runes", "spells"]
 
 
 def _migrate(conn: sqlite3.Connection, version: int) -> None:
     """Bring an existing database up to SCHEMA_VERSION."""
-    if version == 2:
-        # v2 held LCK only: add the league column, existing rows are LCK
-        for table in ("games", "matches"):
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN league TEXT NOT NULL DEFAULT 'LCK'")
+    if version in (2, 3):
+        if version == 2:
+            # v2 held LCK only: add the league column, existing rows are LCK
+            for table in ("games", "matches"):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN league TEXT NOT NULL DEFAULT 'LCK'")
+        # v4 added the loadout; games imported before it get it when they are imported again
+        have = {r[1] for r in conn.execute("PRAGMA table_info(picks)")}
+        if have:
+            for column in PICK_BUILD_FIELDS:
+                if column not in have:
+                    conn.execute(f"ALTER TABLE picks ADD COLUMN {column} TEXT")
     elif version != 0:
         # Unknown older schema: it only held disposable imported data, rebuild it.
         for table in ("bans", "picks", "game_sides", "games", "matches"):
@@ -155,10 +171,11 @@ def save_game(conn: sqlite3.Connection, game: dict) -> None:
     for p in game["picks"]:
         conn.execute(
             "INSERT INTO picks (game_id, side, pick_order, role, champion, player, kills,"
-            " deaths, assists, gold, cs, damage, vision)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " deaths, assists, gold, cs, damage, vision, items, trinket, keystone, primary_tree,"
+            " secondary_tree, runes, spells)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (game["game_id"], p["side"], p["pick_order"], p["role"], p["champion"],
-             *(p.get(k) for k in PICK_STAT_FIELDS)),
+             *(p.get(k) for k in PICK_STAT_FIELDS), *(p.get(k) for k in PICK_BUILD_FIELDS)),
         )
     conn.executemany(
         "INSERT INTO bans (game_id, side, slot, champion) VALUES (?, ?, ?, ?)",
