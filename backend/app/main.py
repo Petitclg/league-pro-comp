@@ -13,6 +13,7 @@ from .dataset import Dataset, Filters, get_dataset, league_summary
 from .db import ROLES
 from .denial import pair_denial, ranking
 from .leagues import DEFAULT_LEAGUE, LEAGUES
+from .suggest import substitutes
 from .suggest import suggest as run_suggest
 
 def latest_year(ds: Dataset) -> str:
@@ -265,6 +266,7 @@ class SuggestRequest(BaseModel):
     years: list[str] = []
     patches: list[str] = []
     fearless: bool | None = None
+    expand: bool = False  # substitute look-alikes for locked champions the pros never played
 
     @field_validator("picks")
     @classmethod
@@ -275,11 +277,17 @@ class SuggestRequest(BaseModel):
         return {r: c for r, c in picks.items() if c}
 
 
-@app.post("/api/suggest")
-def suggest(req: SuggestRequest, ds: DS):
+def _suggest(req: "SuggestRequest", ds) -> dict:
     f = Filters(teams=tuple(req.teams), tournaments=tuple(req.tournaments), years=tuple(req.years),
                 patches=tuple(req.patches), fearless=req.fearless)
-    return run_suggest(ds.filter_comps(f), req.picks, set(req.unavailable), req.enemy)
+    comps = ds.filter_comps(f)
+    subs = substitutes(comps, req.picks, live.champion_profiles()) if req.expand and req.picks else None
+    return run_suggest(comps, req.picks, set(req.unavailable), req.enemy, subs=subs)
+
+
+@app.post("/api/suggest")
+def suggest(req: SuggestRequest, ds: DS):
+    return _suggest(req, ds)
 
 
 class LobbyRecoRequest(SuggestRequest):
@@ -289,9 +297,7 @@ class LobbyRecoRequest(SuggestRequest):
 @app.post("/api/live/send-recos")
 def send_recos(req: LobbyRecoRequest, ds: DS):
     """Post the current top picks (English, one line) in the champ select chat."""
-    f = Filters(teams=tuple(req.teams), tournaments=tuple(req.tournaments), years=tuple(req.years),
-                patches=tuple(req.patches), fearless=req.fearless)
-    result = run_suggest(ds.filter_comps(f), req.picks, set(req.unavailable), req.enemy)
+    result = _suggest(req, ds)
     lines = live.format_recommendations(result["suggestions"], req.my_role)
     if not lines:
         return {"sent": False, "messages": [], "reason": "Nothing to recommend."}

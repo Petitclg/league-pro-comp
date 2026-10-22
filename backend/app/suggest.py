@@ -3,6 +3,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
+from typing import Literal
 
 from .db import ROLES
 from .stats import Tally
@@ -15,6 +16,13 @@ class Params:
     half_life_days: float | None = 90  # a comp this much older than the newest votes half as much; None: no decay
     win_vote: float = 0.25  # a winning comp votes (1 + x) times, a losing one (1 - x) times
     wr_strength: float = 0.0  # score *= 1 + x * (shrunk winrate of the candidate in similar comps - 0.5)
+    patch_decay: float | None = None  # a comp from the patch n before the newest weighs x^n; None: patches are ignored
+    sim_power: float = 2.0  # a comp sharing m locked slots votes with weight m^x
+    min_match: int = 1  # comps sharing fewer locked slots do not vote (capped by the number of locked slots)
+    counter_strength: float = 1.0  # score *= 1 + x * (smoothed winrate against the enemy picks - 0.5); 0: ignore enemies
+    model: Literal["votes", "cooc"] = "votes"  # cooc: popularity x lift with each locked champion (naive Bayes)
+    cooc_smoothing: float = 2.0  # pseudo-weight pulling a champion's rate with a locked one towards its overall rate
+    cooc_power: float = 1.0  # each locked champion's lift is raised to x (< 1 tempers correlated evidence)
 
 
 DEFAULT = Params()
@@ -26,6 +34,69 @@ def _ordinal(day: str) -> int | None:
         return date.fromisoformat(day).toordinal()
     except ValueError:
         return None
+
+
+def _base_weights(comps: list[dict], params: Params) -> list[float]:
+    """Per comp: win/loss vote x recency (by days and/or by patch)."""
+    newest = None
+    if params.half_life_days:
+        newest = max((o for c in comps if (o := _ordinal((c["date"] or "")[:10]))), default=None)
+    patch_rank: dict[str, int] = {}
+    if params.patch_decay is not None:
+        first: dict[str, str] = {}
+        for c in comps:
+            day = (c["date"] or "")[:10]
+            if c.get("patch") and day and day < first.get(c["patch"], "9"):
+                first[c["patch"]] = day
+        patch_rank = {p: i for i, p in enumerate(sorted(first, key=first.__getitem__, reverse=True))}
+
+    weights = []
+    for c in comps:
+        w = 1.0
+        if c["win"] is True:
+            w *= 1 + params.win_vote
+        elif c["win"] is False:
+            w *= 1 - params.win_vote
+        if newest is not None:
+            age = newest - (_ordinal((c["date"] or "")[:10]) or newest - params.half_life_days)  # undated: one half-life old
+            w *= 0.5 ** (age / params.half_life_days)
+        if params.patch_decay is not None:
+            w *= params.patch_decay ** patch_rank.get(c.get("patch"), len(patch_rank))  # unknown patch: oldest
+        weights.append(w)
+    return weights
+
+
+def _similarity(a: dict, b: dict) -> float:
+    """0..1 resemblance of two Data Dragon champion profiles: shared tags and attack/defense/magic ratings."""
+    ta, tb = set(a.get("tags", ())), set(b.get("tags", ()))
+    tags = len(ta & tb) / len(ta | tb) if ta | tb else 0.0
+    ia, ib = a.get("info", {}), b.get("info", {})
+    keys = [k for k in ("attack", "defense", "magic") if k in ia and k in ib]
+    info = 1 - sum(abs(ia[k] - ib[k]) for k in keys) / (10 * len(keys)) if keys else 0.0
+    return 0.6 * tags + 0.4 * info
+
+
+def substitutes(
+    comps: list[dict],
+    locked: dict[str, str],
+    profiles: dict[str, dict],
+    k: int = 5,
+    discount: float = 0.5,
+) -> dict[str, dict[str, float]]:
+    """For each locked champion the pros never played in its role: the k most alike champions they did
+    play there (role -> {champion: weight}), weighted by `discount` x resemblance."""
+    played = Counter((r, ch) for c in comps for r, ch in c["picks"].items())
+    out: dict[str, dict[str, float]] = {}
+    for role, champ in locked.items():
+        if played[(role, champ)] or champ not in profiles:
+            continue
+        ranked = sorted(
+            ((_similarity(profiles[champ], profiles[ch]), ch) for (r, ch) in played if r == role and ch in profiles),
+            reverse=True,
+        )[:k]
+        if ranked:
+            out[role] = {ch: round(discount * s, 3) for s, ch in ranked}
+    return out
 
 
 def _synergies(matches: list[dict], role: str, champ: str, locked_items: list[tuple[str, str]]) -> list[dict]:
@@ -73,42 +144,66 @@ def suggest(
     similar_n: int = 8,
     params: Params = DEFAULT,
     details: bool = True,
+    subs: dict[str, dict[str, float]] | None = None,
 ) -> dict:
     """Every pro comp sharing m >= 1 (role, champion) slots with `locked` votes for the
     champions it played in the open roles, with weight m^2 (wins count a bit more than
     losses, recent comps more than old ones, see `Params`). With nothing locked, every comp votes
-    equally. When enemy picks are known, each candidate is then scaled by its smoothed winrate
-    against them (0.5x to 1.5x).
+    equally, and so do they when no locked champion was ever played by the pros. With
+    `Params.model == "cooc"` the candidates are ranked by recent popularity in their
+    role times their lift with each locked champion instead. When enemy picks are known, each
+    candidate is then scaled by its smoothed winrate against them (0.5x to 1.5x).
+    `subs` (see `substitutes`) lets a comp playing a look-alike of an unplayed locked champion
+    count as a partial match.
     """
     enemy = [e for e in (enemy or []) if e]
     unavailable = set(unavailable or ()) | set(locked.values()) | set(enemy)
     open_roles = [r for r in ROLES if r not in locked]
     locked_items = list(locked.items())
 
-    newest = None
-    if params.half_life_days:
-        newest = max((o for c in comps if (o := _ordinal((c["date"] or "")[:10]))), default=None)
+    subs = subs or {}
 
+    def shared_slots(picks: dict[str, str]) -> list[tuple[tuple[str, str], float]]:
+        out = []
+        for item in locked_items:
+            role, champ = item
+            s = 1.0 if picks.get(role) == champ else subs.get(role, {}).get(picks.get(role), 0.0)
+            if s:
+                out.append((item, s))
+        return out
+
+    shared_all = [shared_slots(c["picks"]) for c in comps]
+    exact = {item for slots in shared_all for item, s in slots if s == 1.0}
+    fallback = bool(locked_items) and not any(shared_all)  # nothing known: plain recent popularity
+    cooc = params.model == "cooc" and bool(locked_items)
+    min_match = min(params.min_match, len(locked_items)) if params.min_match > 1 else 0  # 1 would drop partial matches
     votes: dict[str, Counter] = {r: Counter() for r in open_roles}
     support: dict[tuple[str, str], Tally] = defaultdict(Tally)
     total_weight = 0.0
     matches = []
-    for c in comps:
-        m = sum(1 for r, ch in locked_items if c["picks"].get(r) == ch)
-        if locked_items and m == 0:
+    all_weight = 0.0  # cooc: every comp counts, similar or not
+    popularity: Counter = Counter()  # (role, champion) -> weight
+    slot_weight: Counter = Counter()  # locked (role, champion) -> weight
+    joint: Counter = Counter()  # (locked slot, role, champion) -> weight
+    for c, base, shared in zip(comps, _base_weights(comps, params), shared_all):
+        picks = c["picks"]
+        m = sum(s for _, s in shared)
+        if cooc:
+            all_weight += base
+            for item, s in shared:
+                slot_weight[item] += base * s
+            for r in open_roles:
+                if champ := picks.get(r):
+                    popularity[(r, champ)] += base
+                    for item, s in shared:
+                        joint[(item, r, champ)] += base * s
+        if locked_items and not fallback and (m <= 0 or m < min_match):
             continue
-        weight = float(m * m) if locked_items else 1.0
-        if c["win"] is True:
-            weight *= 1 + params.win_vote
-        elif c["win"] is False:
-            weight *= 1 - params.win_vote
-        if newest is not None:
-            age = newest - (_ordinal((c["date"] or "")[:10]) or newest - params.half_life_days)  # undated: one half-life old
-            weight *= 0.5 ** (age / params.half_life_days)
+        weight = base * (m ** params.sim_power if locked_items and not fallback else 1.0)
         total_weight += weight
         matches.append((m, c))
         for r in open_roles:
-            champ = c["picks"].get(r)
+            champ = picks.get(r)
             if champ:
                 votes[r][champ] += weight
                 support[(r, champ)].add(c["win"])
@@ -126,10 +221,19 @@ def suggest(
             tally = support[(r, champ)]
             factor = 1 + params.wr_strength * (shrunk_winrate(tally.wins, tally.decided) - 0.5)
             if cwr is not None:
-                factor *= 0.5 + cwr
+                factor *= 1 + params.counter_strength * (cwr - 0.5)
+            base_score = share
+            if cooc:
+                pop = popularity[(r, champ)] / all_weight
+                lift = 1.0
+                for item in locked_items:
+                    if slot_weight[item]:
+                        rate = (joint[(item, r, champ)] + params.cooc_smoothing * pop) / (slot_weight[item] + params.cooc_smoothing)
+                        lift *= (rate / pop) ** params.cooc_power
+                base_score = pop * lift
             ranked.append({
                 "champion": champ,
-                "score": round(share * factor, 4),
+                "score": round(base_score * factor, 6),
                 "share": round(share, 4),
                 "games": support[(r, champ)].games,
                 "winrate": support[(r, champ)].wr,
@@ -142,16 +246,22 @@ def suggest(
         for s in suggestions[r] if details else ():
             s["synergies"] = _synergies(matched, r, s["champion"], locked_items)
 
+    coverage = {
+        "matching_comps": 0 if fallback else len(matches),
+        "unknown_picks": [r for r, ch in locked_items if (r, ch) not in exact],
+        "substitutes": {r: list(s) for r, s in subs.items()},
+    }
     if not details:  # ranking only (backtests)
-        return {"locked": locked, "matching_comps": len(matches), "suggestions": suggestions,
-                "similar_comps": [], "closest_teams": []}
+        return {"locked": locked, **coverage, "suggestions": suggestions, "similar_comps": [], "closest_teams": []}
 
+    if fallback:
+        matches = []
     matches.sort(key=lambda mc: mc[1]["date"] or "", reverse=True)
     matches.sort(key=lambda mc: (-mc[0], mc[1]["win"] is not True))
     banned = unavailable - set(locked.values())
     similar = [
         {
-            "match": m, "game_id": c["game_id"], "team": c["team"], "opponent": c["opponent"],
+            "match": round(m, 2), "game_id": c["game_id"], "team": c["team"], "opponent": c["opponent"],
             "win": c["win"], "date": c["date"], "game_number": c["game_number"], "picks": c["picks"],
         }
         for m, c in matches
@@ -162,7 +272,7 @@ def suggest(
     for m, c in matches:
         t = teams.setdefault(c["team"], {"team": c["team"], "similarity": 0.0, "best_match": 0, "games": 0})
         t["similarity"] += m
-        t["best_match"] = max(t["best_match"], m)
+        t["best_match"] = round(max(t["best_match"], m), 2)
         t["games"] += 1
     closest_teams = sorted(
         ({**t, "similarity": round(t["similarity"] / t["games"], 2)} for t in teams.values()),
@@ -171,7 +281,7 @@ def suggest(
 
     return {
         "locked": locked,
-        "matching_comps": len(matches),
+        **coverage,
         "suggestions": suggestions,
         "similar_comps": similar,
         "closest_teams": closest_teams if locked_items else [],

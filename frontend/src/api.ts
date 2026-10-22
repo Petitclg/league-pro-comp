@@ -385,6 +385,8 @@ export interface Suggestion {
 
 export interface SuggestResult {
   matching_comps: number
+  unknown_picks: Role[]
+  substitutes: Partial<Record<Role, string[]>>
   suggestions: Partial<Record<Role, Suggestion[]>>
   similar_comps: {
     match: number
@@ -431,12 +433,14 @@ type SuggestBody = {
   picks: Partial<Record<Role, string>>
   enemy: string[]
   unavailable: string[]
+  expand?: boolean
 } & Filters
 
 const suggestPayload = (body: SuggestBody) => ({
   picks: body.picks,
   enemy: body.enemy,
   unavailable: body.unavailable,
+  expand: body.expand ?? false,
   teams: body.team ?? [],
   tournaments: body.tournament ?? [],
   years: body.year ?? [],

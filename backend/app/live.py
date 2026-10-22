@@ -25,17 +25,33 @@ POSITION_TO_ROLE = {
 }
 
 _names: dict[int, str] = {}
+_profiles: dict[str, dict] = {}
+
+
+def _load_ddragon() -> None:
+    version = httpx.get("https://ddragon.leagueoflegends.com/api/versions.json", timeout=10).json()[0]
+    data = httpx.get(
+        f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json", timeout=10
+    ).json()["data"]
+    _names.update({int(c["key"]): c["name"] for c in data.values()})
+    _profiles.update({c["name"]: {"tags": c["tags"], "info": c["info"]} for c in data.values()})
 
 
 def champion_names() -> dict[int, str]:
     """Data Dragon champion key -> display name (same naming as the database)."""
     if not _names:
-        version = httpx.get("https://ddragon.leagueoflegends.com/api/versions.json", timeout=10).json()[0]
-        data = httpx.get(
-            f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json", timeout=10
-        ).json()["data"]
-        _names.update({int(c["key"]): c["name"] for c in data.values()})
+        _load_ddragon()
     return _names
+
+
+def champion_profiles() -> dict[str, dict]:
+    """Display name -> {tags, info} from Data Dragon; empty when it cannot be reached."""
+    if not _profiles:
+        try:
+            _load_ddragon()
+        except httpx.HTTPError:
+            pass
+    return _profiles
 
 
 def find_credentials() -> tuple[int, str] | None:

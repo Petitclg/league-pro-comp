@@ -78,7 +78,7 @@ export function BuilderPage() {
   const [fearlessLocked, setFearlessLocked] = useState<string[]>([])
   const [tracking, setTracking] = useState(false)
   const [sendToChat, setSendToChat] = useState(false)
-
+  const [expand, setExpand] = useState(false)
   const status = useTracker(tracking, (s) => {
     // Keep the same references when nothing changed, otherwise every poll would trigger a recompute.
     setPicks((prev) => (sameJson(prev, s.my_team ?? {}) ? prev : (s.my_team ?? {})))
@@ -93,6 +93,7 @@ export function BuilderPage() {
       picks: locked,
       enemy,
       unavailable,
+      expand,
       league: selectedLeagues(filters),
       team: filters.team,
       tournament: filters.tournament,
@@ -130,6 +131,13 @@ export function BuilderPage() {
             onChange={(e) => setSendToChat(e.target.checked)}
           />
           Envoyer les recommandations dans le chat
+        </label>
+        <label
+          className="switch"
+          title="Un champion jamais joué en pro à son poste est remplacé par les champions pro qui lui ressemblent (tags et profil Data Dragon), avec un poids réduit"
+        >
+          <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} />
+          Mode élargi : remplacer les champions jamais joués en pro par des équivalents
         </label>
         {status && (
           <span className={status.in_champ_select ? 'good-text' : 'muted'}>
@@ -187,6 +195,17 @@ export function BuilderPage() {
       {error && <p className="error">{error}</p>}
       <p className="muted status-line">
         {data ? `${data.matching_comps} comps pro comparables.` : ''}
+        {data && data.unknown_picks.length > 0 && (
+          <span className="bad-text">
+            {' '}
+            Jamais joués en pro à ce poste : {data.unknown_picks.map((r) => `${locked[r]} (${ROLE_LABEL[r]})`).join(', ')}
+            {Object.keys(data.substitutes).length > 0
+              ? ` — remplacés par ${Object.entries(data.substitutes)
+                  .map(([r, cs]) => `${locked[r as Role]} → ${cs?.join(', ')}`)
+                  .join(' ; ')}.`
+              : ' — ignorés.'}
+          </span>
+        )}
         {loading && <span className="computing"> Mise à jour…</span>}
       </p>
       {data && (

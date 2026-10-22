@@ -4,7 +4,7 @@ from app import dataset, live, stats
 from app.dataset import Filters, load
 from app.db import ROLES
 from app.ingest import parse_game
-from app.suggest import Params, suggest
+from app.suggest import Params, substitutes, suggest
 
 from .synth import build_db
 
@@ -230,6 +230,44 @@ def test_recency_decay_favours_recent_comps():
     flat = suggest(old + recent, {"top": "Ornn"}, params=Params(half_life_days=None))["suggestions"]["mid"]
     decayed = suggest(old + recent, {"top": "Ornn"}, params=Params(half_life_days=90))["suggestions"]["mid"]
     assert flat[0]["champion"] == "Azir" and decayed[0]["champion"] == "Ahri"
+
+
+def _pro_comps():
+    def comp(day, top, mid, win=True):
+        return {"game_id": day + top, "team": "A", "opponent": "B", "win": win, "date": f"{day} 10:00:00",
+                "game_number": 1, "enemy": {}, "picks": {"top": top, "mid": mid}}
+
+    return [comp("2025-06-01", "Ornn", "Azir"), comp("2025-06-02", "Ornn", "Azir"),
+            comp("2025-06-03", "Gnar", "Ahri"), comp("2025-06-04", "Gnar", "Ahri")]
+
+
+def test_suggest_unknown_locked_champion_falls_back_to_popularity():
+    comps = _pro_comps()
+    result = suggest(comps, {"top": "Singed"})
+    assert result["matching_comps"] == 0 and result["unknown_picks"] == ["top"]
+    assert {s["champion"] for s in result["suggestions"]["mid"]} == {"Azir", "Ahri"}
+    assert result["similar_comps"] == [] and result["closest_teams"] == []
+
+
+def test_suggest_substitutes_for_unknown_champion():
+    comps = _pro_comps()
+    profiles = {
+        "Singed": {"tags": ["Tank", "Mage"], "info": {"attack": 4, "defense": 8, "magic": 7}},
+        "Ornn": {"tags": ["Tank", "Fighter"], "info": {"attack": 5, "defense": 9, "magic": 3}},
+        "Gnar": {"tags": ["Tank", "Fighter"], "info": {"attack": 6, "defense": 5, "magic": 5}},
+    }
+    subs = substitutes(comps, {"top": "Singed"}, profiles)
+    assert set(subs["top"]) == {"Ornn", "Gnar"} and 0 < subs["top"]["Ornn"] < 0.5
+    result = suggest(comps, {"top": "Singed"}, subs=subs)
+    assert result["matching_comps"] == 4 and set(result["substitutes"]["top"]) == {"Ornn", "Gnar"}
+    assert result["suggestions"]["mid"][0]["share"] > 0
+    assert substitutes(comps, {"top": "Ornn"}, profiles) == {}
+
+
+def test_cooc_model_ranks_by_popularity_times_lift():
+    comps = _pro_comps() + [dict(_pro_comps()[0], game_id=f"x{i}") for i in range(3)]
+    ranked = suggest(comps, {"top": "Gnar"}, params=Params(model="cooc"))["suggestions"]["mid"]
+    assert ranked[0]["champion"] == "Ahri"
 
 
 def test_lobby_messages_one_line_per_role_and_only_changes(monkeypatch):
