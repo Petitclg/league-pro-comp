@@ -350,6 +350,16 @@ def import_cancel():
     return importer.job.status()
 
 
+class FrontFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        # Hashed bundles never change; everything else (index.html) must be revalidated, or the
+        # window keeps showing the previous release after an update.
+        immutable = path.replace("\\", "/").startswith("assets/")
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
+        return response
+
+
 if STATIC_DIR is not None:
     # The built front-end, served by the API itself (desktop app). Must come after every /api route.
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="front")
+    app.mount("/", FrontFiles(directory=STATIC_DIR, html=True), name="front")
