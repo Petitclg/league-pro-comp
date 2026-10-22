@@ -115,44 +115,42 @@ def read_champ_select() -> dict:
     except httpx.HTTPError as exc:
         return {"connected": False, "in_champ_select": False, "reason": f"Client injoignable : {exc}"}
     if response.status_code == 404:
-        global _last_message
-        _last_message = None  # next champ select may send again
+        _sent.clear()  # the next champ select may send again
         return {"connected": True, "in_champ_select": False, "reason": "Pas de champ select en cours."}
     response.raise_for_status()
     return {"connected": True, **parse_session(response.json(), champion_names())}
 
 
 ROLE_SHORT = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "bot": "Bot", "support": "Support"}
-_last_message: str | None = None
+_sent: dict[str, str] = {}  # role -> last line posted in this champ select
 
 
-def format_recommendations(suggestions: dict[str, list[dict]], my_role: str | None, top_n: int = 3) -> str | None:
-    """One-line English recommendation: the player's role if still open, else every open role."""
-    roles = [my_role] if my_role in suggestions else list(suggestions)
-    parts = []
-    for role in roles:
-        champs = [s["champion"] for s in suggestions[role][:top_n]]
-        if champs:
-            parts.append(f"{ROLE_SHORT.get(role, role)}: {', '.join(champs)}")
-    return f"Pro comp picks - {' | '.join(parts)}" if parts else None
+def format_recommendations(suggestions: dict[str, list[dict]], my_role: str | None, top_n: int = 5) -> dict[str, str]:
+    """One short English line per open role (the player's role first), e.g. `[Pro] Mid: Azir, Ahri, Orianna`."""
+    roles = sorted(suggestions, key=lambda r: r != my_role)  # stable: the other roles keep the app's order
+    return {
+        role: f"[Pro] {ROLE_SHORT.get(role, role)}: {', '.join(s['champion'] for s in suggestions[role][:top_n])}"
+        for role in roles if suggestions[role]
+    }
 
 
-def send_lobby_message(text: str) -> bool:
-    """Post `text` in the champ select chat; False when unavailable or identical to the last message."""
-    global _last_message
-    if text == _last_message:
-        return False
-    creds = find_credentials()
+def send_lobby_messages(lines: dict[str, str]) -> list[str]:
+    """Post each line that changed since the last one sent in the champ select chat; returns what was sent."""
+    todo = {role: text for role, text in lines.items() if _sent.get(role) != text}
+    creds = find_credentials() if todo else None
     if not creds:
-        return False
+        return []
     port, password = creds
     base = f"https://127.0.0.1:{port}/lol-chat/v1/conversations"
+    posted = []
     with httpx.Client(auth=("riot", password), verify=False, timeout=5) as client:
         conversations = client.get(base)
         conversations.raise_for_status()
         chat = next((c for c in conversations.json() if c.get("type") == "championSelect"), None)
         if not chat:
-            return False
-        client.post(f"{base}/{chat['id']}/messages", json={"body": text, "type": "chat"}).raise_for_status()
-    _last_message = text
-    return True
+            return []
+        for role, text in todo.items():
+            client.post(f"{base}/{chat['id']}/messages", json={"body": text, "type": "chat"}).raise_for_status()
+            _sent[role] = text
+            posted.append(text)
+    return posted

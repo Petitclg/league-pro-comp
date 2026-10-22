@@ -292,14 +292,14 @@ def send_recos(req: LobbyRecoRequest, ds: DS):
     f = Filters(teams=tuple(req.teams), tournaments=tuple(req.tournaments), years=tuple(req.years),
                 patches=tuple(req.patches), fearless=req.fearless)
     result = run_suggest(ds.filter_comps(f), req.picks, set(req.unavailable), req.enemy)
-    message = live.format_recommendations(result["suggestions"], req.my_role)
-    if not message:
-        return {"sent": False, "message": None, "reason": "Nothing to recommend."}
+    lines = live.format_recommendations(result["suggestions"], req.my_role)
+    if not lines:
+        return {"sent": False, "messages": [], "reason": "Nothing to recommend."}
     try:
-        sent = live.send_lobby_message(message)
+        posted = live.send_lobby_messages(lines)
     except Exception as exc:  # the client API is local and best-effort
-        return {"sent": False, "message": message, "reason": str(exc)}
-    return {"sent": sent, "message": message}
+        return {"sent": False, "messages": list(lines.values()), "reason": str(exc)}
+    return {"sent": bool(posted), "messages": posted}
 
 
 @app.get("/api/live")

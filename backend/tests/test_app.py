@@ -4,7 +4,7 @@ from app import dataset, live, stats
 from app.dataset import Filters, load
 from app.db import ROLES
 from app.ingest import parse_game
-from app.suggest import suggest
+from app.suggest import Params, suggest
 
 from .synth import build_db
 
@@ -218,3 +218,47 @@ def test_api(ds):
     assert res.status_code == 200 and res.json()["suggestions"]
     assert client.post("/api/suggest", json={"picks": {"king": "Azir"}}).status_code == 422
     main.app.dependency_overrides.clear()
+
+
+def test_recency_decay_favours_recent_comps():
+    def comp(day, mid):
+        return {"game_id": day, "team": "A", "opponent": "B", "win": True, "date": f"{day} 10:00:00",
+                "game_number": 1, "enemy": {}, "picks": {"top": "Ornn", "mid": mid}}
+
+    old = [comp("2024-01-01", "Azir") for _ in range(10)]
+    recent = [comp("2025-06-01", "Ahri") for _ in range(6)]
+    flat = suggest(old + recent, {"top": "Ornn"}, params=Params(half_life_days=None))["suggestions"]["mid"]
+    decayed = suggest(old + recent, {"top": "Ornn"}, params=Params(half_life_days=90))["suggestions"]["mid"]
+    assert flat[0]["champion"] == "Azir" and decayed[0]["champion"] == "Ahri"
+
+
+def test_lobby_messages_one_line_per_role_and_only_changes(monkeypatch):
+    suggestions = {
+        "top": [{"champion": c} for c in ("Ornn", "Jax", "Gnar", "Aatrox", "Fiora", "Camille")],
+        "mid": [{"champion": c} for c in ("Azir", "Ahri")],
+        "jungle": [],
+    }
+    lines = live.format_recommendations(suggestions, "mid")
+    assert list(lines) == ["mid", "top"] and lines["mid"] == "[Pro] Mid: Azir, Ahri"
+    assert lines["top"] == "[Pro] Top: Ornn, Jax, Gnar, Aatrox, Fiora"  # 5 champions
+
+    posted = []
+
+    class FakeClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url):
+            return type("R", (), {"raise_for_status": lambda s: None, "json": lambda s: [{"type": "championSelect", "id": "c1"}]})()
+        def post(self, url, json):
+            posted.append(json["body"])
+            return type("R", (), {"raise_for_status": lambda s: None})()
+
+    monkeypatch.setattr(live, "find_credentials", lambda: (1234, "pw"))
+    monkeypatch.setattr(live.httpx, "Client", FakeClient)
+    live._sent.clear()
+    assert live.send_lobby_messages(lines) == list(lines.values()) and posted == list(lines.values())
+    assert live.send_lobby_messages(lines) == []  # nothing changed
+    changed = {**lines, "top": "[Pro] Top: Jax, Ornn"}
+    assert live.send_lobby_messages(changed) == ["[Pro] Top: Jax, Ornn"]
+    live._sent.clear()

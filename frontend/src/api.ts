@@ -475,7 +475,7 @@ export const api = {
       body: JSON.stringify(suggestPayload(body)),
     }),
   sendRecos: (body: SuggestBody, myRole?: Role) =>
-    request<{ sent: boolean; message: string | null; reason?: string }>(
+    request<{ sent: boolean; messages: string[]; reason?: string }>(
       `/api/live/send-recos${qs({ league: body.league })}`,
       {
         method: 'POST',

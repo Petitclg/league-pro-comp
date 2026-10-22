@@ -1,8 +1,31 @@
 """Comp suggestions: complete a partial draft so it resembles winning pro comps."""
 from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import date
+from functools import lru_cache
 
 from .db import ROLES
 from .stats import Tally
+from .strength import shrunk_winrate
+
+
+@dataclass(frozen=True)
+class Params:
+    """Knobs of the ranking; `python -m app.backtest` compares settings on past drafts."""
+    half_life_days: float | None = 90  # a comp this much older than the newest votes half as much; None: no decay
+    win_vote: float = 0.25  # a winning comp votes (1 + x) times, a losing one (1 - x) times
+    wr_strength: float = 0.0  # score *= 1 + x * (shrunk winrate of the candidate in similar comps - 0.5)
+
+
+DEFAULT = Params()
+
+
+@lru_cache(maxsize=None)
+def _ordinal(day: str) -> int | None:
+    try:
+        return date.fromisoformat(day).toordinal()
+    except ValueError:
+        return None
 
 
 def _synergies(matches: list[dict], role: str, champ: str, locked_items: list[tuple[str, str]]) -> list[dict]:
@@ -48,16 +71,23 @@ def suggest(
     enemy: list[str] | None = None,
     top_n: int = 5,
     similar_n: int = 8,
+    params: Params = DEFAULT,
+    details: bool = True,
 ) -> dict:
     """Every pro comp sharing m >= 1 (role, champion) slots with `locked` votes for the
     champions it played in the open roles, with weight m^2 (wins count a bit more than
-    losses). With nothing locked, every comp votes equally. When enemy picks are known,
-    each candidate is then scaled by its smoothed winrate against them (0.5x to 1.5x).
+    losses, recent comps more than old ones, see `Params`). With nothing locked, every comp votes
+    equally. When enemy picks are known, each candidate is then scaled by its smoothed winrate
+    against them (0.5x to 1.5x).
     """
     enemy = [e for e in (enemy or []) if e]
     unavailable = set(unavailable or ()) | set(locked.values()) | set(enemy)
     open_roles = [r for r in ROLES if r not in locked]
     locked_items = list(locked.items())
+
+    newest = None
+    if params.half_life_days:
+        newest = max((o for c in comps if (o := _ordinal((c["date"] or "")[:10]))), default=None)
 
     votes: dict[str, Counter] = {r: Counter() for r in open_roles}
     support: dict[tuple[str, str], Tally] = defaultdict(Tally)
@@ -69,9 +99,12 @@ def suggest(
             continue
         weight = float(m * m) if locked_items else 1.0
         if c["win"] is True:
-            weight *= 1.25
+            weight *= 1 + params.win_vote
         elif c["win"] is False:
-            weight *= 0.75
+            weight *= 1 - params.win_vote
+        if newest is not None:
+            age = newest - (_ordinal((c["date"] or "")[:10]) or newest - params.half_life_days)  # undated: one half-life old
+            weight *= 0.5 ** (age / params.half_life_days)
         total_weight += weight
         matches.append((m, c))
         for r in open_roles:
@@ -90,9 +123,13 @@ def suggest(
                 continue
             share = score / total_weight if total_weight else 0
             cwr, cgames = counters.get((r, champ), (None, 0))
+            tally = support[(r, champ)]
+            factor = 1 + params.wr_strength * (shrunk_winrate(tally.wins, tally.decided) - 0.5)
+            if cwr is not None:
+                factor *= 0.5 + cwr
             ranked.append({
                 "champion": champ,
-                "score": round(share * (0.5 + cwr) if cwr is not None else share, 4),
+                "score": round(share * factor, 4),
                 "share": round(share, 4),
                 "games": support[(r, champ)].games,
                 "winrate": support[(r, champ)].wr,
@@ -102,8 +139,12 @@ def suggest(
         ranked.sort(key=lambda s: -s["score"])
         suggestions[r] = ranked[:top_n]
         # Synergies are only worth computing for the candidates actually returned.
-        for s in suggestions[r]:
+        for s in suggestions[r] if details else ():
             s["synergies"] = _synergies(matched, r, s["champion"], locked_items)
+
+    if not details:  # ranking only (backtests)
+        return {"locked": locked, "matching_comps": len(matches), "suggestions": suggestions,
+                "similar_comps": [], "closest_teams": []}
 
     matches.sort(key=lambda mc: mc[1]["date"] or "", reverse=True)
     matches.sort(key=lambda mc: (-mc[0], mc[1]["win"] is not True))
