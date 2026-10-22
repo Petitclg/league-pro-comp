@@ -35,12 +35,40 @@ def setup_logging() -> None:
     print(f"--- {APP_NAME} {VERSION} started {time.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
 
 
-def already_running(port: int) -> bool:
+def running_version(port: int) -> str | None:
+    """Version of the instance already serving `port`, or None when there is none."""
     try:
         response = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=0.7)
-        return response.status_code == 200 and response.json().get("app") == APP_NAME
+        data = response.json()
+        return data.get("version", "") if response.status_code == 200 and data.get("app") == APP_NAME else None
+    except Exception:
+        return None
+
+
+def already_running(port: int) -> bool:
+    return running_version(port) is not None
+
+
+def replace_outdated_instance(port: int) -> bool:
+    """A newer release exists and an older instance holds the port: ask it to quit. True once the port is free."""
+    exe = updater.current_exe()
+    if exe is None or os.environ.get("LOLPRO_NO_UPDATE"):
+        return False
+    release = updater.check()
+    if not release or not updater.is_newer(release["version"], running_version(port) or ""):
+        return False
+    try:
+        response = httpx.post(f"http://127.0.0.1:{port}/api/quit", headers={"X-Requested-With": APP_NAME}, timeout=3)
     except Exception:
         return False
+    if response.status_code != 200:  # busy (import running) or too old to know /api/quit
+        return False
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        if not already_running(port):
+            return True
+        time.sleep(0.3)
+    return False
 
 
 def pick_port() -> int:
@@ -174,6 +202,8 @@ def wait_for_window(window: subprocess.Popen | None) -> None:
             if time.monotonic() - started > 5:
                 return  # the window was closed
             window = None  # the browser handed over to another process: rely on the heartbeat
+        if runtime.quit_requested:
+            return
         if window is None:
             since = runtime.seconds_since_beat()
             if since is None and time.monotonic() - started > FIRST_BEAT_TIMEOUT:
@@ -187,7 +217,7 @@ def main() -> None:
     runtime.desktop = True
     if "--after-update" in sys.argv:
         time.sleep(1.5)  # let the previous version finish exiting
-    if already_running(PREFERRED_PORT):
+    if already_running(PREFERRED_PORT) and not replace_outdated_instance(PREFERRED_PORT):
         open_window(f"http://127.0.0.1:{PREFERRED_PORT}/")
         return
     update_at_startup()
@@ -197,6 +227,8 @@ def main() -> None:
     try:
         wait_for_window(window)
     finally:
+        if runtime.quit_requested and window is not None:
+            window.terminate()  # the stale window would otherwise outlive the server
         server.should_exit = True
         print("bye", flush=True)
 

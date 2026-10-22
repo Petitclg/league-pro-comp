@@ -2,6 +2,7 @@
 import time
 
 desktop = False  # set by the desktop launcher
+quit_requested = False  # a newer launch asked this instance to leave so it can update
 _last_beat: float | None = None
 
 

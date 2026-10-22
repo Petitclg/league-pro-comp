@@ -93,3 +93,37 @@ def test_loaded_data_is_kept_while_an_import_rewrites_the_database(monkeypatch, 
         assert dataset.get_dataset(("LCK",)) is ds
     finally:
         dataset.set_reload_paused(False)
+
+
+def test_quit_endpoint_is_guarded(monkeypatch):
+    client = TestClient(main.app)
+    monkeypatch.setattr(runtime, "quit_requested", False)
+    monkeypatch.setattr(runtime, "desktop", True)
+    assert client.post("/api/quit").status_code == 403  # no custom header: a web page could send this
+    monkeypatch.setattr(type(importer.job), "running", property(lambda self: True))
+    assert client.post("/api/quit", headers={"X-Requested-With": "LoL Pro Comp"}).status_code == 409  # import running
+    monkeypatch.setattr(type(importer.job), "running", property(lambda self: False))
+    assert client.post("/api/quit", headers={"X-Requested-With": "LoL Pro Comp"}).json() == {"ok": True}
+    assert runtime.quit_requested
+
+
+def test_newer_launch_replaces_outdated_instance(monkeypatch):
+    from app import desktop, updater
+
+    posted = []
+    alive = {"up": True}
+    monkeypatch.setattr(updater, "current_exe", lambda: object())
+    monkeypatch.setattr(updater, "check", lambda: {"version": "v0.3.0"})
+    monkeypatch.setattr(desktop, "running_version", lambda port: "0.2.0" if alive["up"] else None)
+
+    def fake_post(url, **kw):
+        posted.append(url)
+        alive["up"] = False
+        return type("R", (), {"status_code": 200})()
+
+    monkeypatch.setattr(desktop.httpx, "post", fake_post)
+    assert desktop.replace_outdated_instance(8765) and posted == ["http://127.0.0.1:8765/api/quit"]
+
+    alive["up"] = True
+    monkeypatch.setattr(desktop, "running_version", lambda port: "0.3.0")  # already the latest: leave it alone
+    assert not desktop.replace_outdated_instance(8765)

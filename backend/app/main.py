@@ -2,7 +2,7 @@ import threading
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -320,6 +320,17 @@ def health():
 def heartbeat():
     """The desktop window pings this; the launcher quits once it stops."""
     runtime.beat()
+    return {"ok": True}
+
+
+@app.post("/api/quit")
+def quit_app(x_requested_with: Annotated[str | None, Header()] = None):
+    """A newer launch asks this outdated instance to quit so the update can be installed."""
+    if x_requested_with != APP_NAME:  # a custom header forces a CORS preflight: web pages cannot send it
+        raise HTTPException(403, "Forbidden")
+    if not runtime.desktop or importer.job.running:
+        raise HTTPException(409, "Cannot quit now")
+    runtime.quit_requested = True
     return {"ok": True}
 
 
