@@ -77,6 +77,7 @@ export function BuilderPage() {
   const [bans, setBans] = useState<string[]>([])
   const [fearlessLocked, setFearlessLocked] = useState<string[]>([])
   const [tracking, setTracking] = useState(false)
+  const [sendToChat, setSendToChat] = useState(false)
 
   const status = useTracker(tracking, (s) => {
     // Keep the same references when nothing changed, otherwise every poll would trigger a recompute.
@@ -103,6 +104,15 @@ export function BuilderPage() {
   )
   const { data, loading, error } = useAsync(() => api.suggest(JSON.parse(request)), [request])
 
+  const inChampSelect = !!status?.in_champ_select
+  const myRole = status?.my_role
+  useEffect(() => {
+    if (!sendToChat || !inChampSelect || !data || loading) return
+    api.sendRecos(JSON.parse(request), myRole ?? undefined).catch(() => undefined)
+    // The server skips a message identical to the last one sent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendToChat, inChampSelect, data, loading, request])
+
   const allPicked = [...Object.values(locked), ...enemy]
 
   return (
@@ -111,6 +121,15 @@ export function BuilderPage() {
         <label className="switch">
           <input type="checkbox" checked={tracking} onChange={(e) => setTracking(e.target.checked)} />
           Tracker : importer automatiquement ma draft depuis le client LoL
+        </label>
+        <label className="switch" title="Poste une ligne de recommandations (en anglais) dans le chat de la sélection des champions">
+          <input
+            type="checkbox"
+            checked={sendToChat}
+            disabled={!tracking}
+            onChange={(e) => setSendToChat(e.target.checked)}
+          />
+          Envoyer les recommandations dans le chat
         </label>
         {status && (
           <span className={status.in_champ_select ? 'good-text' : 'muted'}>

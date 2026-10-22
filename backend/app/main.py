@@ -282,6 +282,26 @@ def suggest(req: SuggestRequest, ds: DS):
     return run_suggest(ds.filter_comps(f), req.picks, set(req.unavailable), req.enemy)
 
 
+class LobbyRecoRequest(SuggestRequest):
+    my_role: str | None = None
+
+
+@app.post("/api/live/send-recos")
+def send_recos(req: LobbyRecoRequest, ds: DS):
+    """Post the current top picks (English, one line) in the champ select chat."""
+    f = Filters(teams=tuple(req.teams), tournaments=tuple(req.tournaments), years=tuple(req.years),
+                patches=tuple(req.patches), fearless=req.fearless)
+    result = run_suggest(ds.filter_comps(f), req.picks, set(req.unavailable), req.enemy)
+    message = live.format_recommendations(result["suggestions"], req.my_role)
+    if not message:
+        return {"sent": False, "message": None, "reason": "Nothing to recommend."}
+    try:
+        sent = live.send_lobby_message(message)
+    except Exception as exc:  # the client API is local and best-effort
+        return {"sent": False, "message": message, "reason": str(exc)}
+    return {"sent": sent, "message": message}
+
+
 @app.get("/api/live")
 def live_state():
     try:

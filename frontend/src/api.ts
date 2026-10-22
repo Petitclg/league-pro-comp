@@ -404,6 +404,7 @@ export interface LiveState {
   in_champ_select: boolean
   reason?: string
   phase?: string
+  my_role?: Role | null
   my_team?: Partial<Record<Role, string>>
   my_team_unplaced?: string[]
   enemy_picks?: string[]
@@ -425,6 +426,23 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
 }
+
+type SuggestBody = {
+  picks: Partial<Record<Role, string>>
+  enemy: string[]
+  unavailable: string[]
+} & Filters
+
+const suggestPayload = (body: SuggestBody) => ({
+  picks: body.picks,
+  enemy: body.enemy,
+  unavailable: body.unavailable,
+  teams: body.team ?? [],
+  tournaments: body.tournament ?? [],
+  years: body.year ?? [],
+  patches: body.patch ?? [],
+  fearless: body.fearless === undefined ? undefined : body.fearless === 'true',
+})
 
 export const api = {
   importStatus: () => request<ImportStatus>('/api/import'),
@@ -450,25 +468,19 @@ export const api = {
   denial: (f: Filters, a: string, b: string) => request<DenialResult>(`/api/denial${qs({ ...f, a, b })}`),
   countered: (f: Filters) => request<CounteredRanking>(`/api/countered-synergies${qs({ ...f, limit: 20 })}`),
   live: () => request<LiveState>('/api/live'),
-  suggest: (
-    body: {
-      picks: Partial<Record<Role, string>>
-      enemy: string[]
-      unavailable: string[]
-    } & Filters,
-  ) =>
+  suggest: (body: SuggestBody) =>
     request<SuggestResult>(`/api/suggest${qs({ league: body.league })}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        picks: body.picks,
-        enemy: body.enemy,
-        unavailable: body.unavailable,
-        teams: body.team ?? [],
-        tournaments: body.tournament ?? [],
-        years: body.year ?? [],
-        patches: body.patch ?? [],
-        fearless: body.fearless === undefined ? undefined : body.fearless === 'true',
-      }),
+      body: JSON.stringify(suggestPayload(body)),
     }),
+  sendRecos: (body: SuggestBody, myRole?: Role) =>
+    request<{ sent: boolean; message: string | null; reason?: string }>(
+      `/api/live/send-recos${qs({ league: body.league })}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...suggestPayload(body), my_role: myRole }),
+      },
+    ),
 }

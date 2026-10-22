@@ -89,9 +89,11 @@ def parse_session(session: dict, names: dict[int, str]) -> dict:
         else:
             unplaced.append(champ)
     enemy = [name(cid) for cell, cid in picked.items() if cell not in my_cells and name(cid)]
+    me = next((p for p in session.get("myTeam", []) if p["cellId"] == session.get("localPlayerCellId")), {})
     return {
         "in_champ_select": True,
         "phase": (session.get("timer") or {}).get("phase"),
+        "my_role": POSITION_TO_ROLE.get((me.get("assignedPosition") or "").lower()),
         "my_team": my_team,
         "my_team_unplaced": unplaced,
         "enemy_picks": enemy,
@@ -113,6 +115,44 @@ def read_champ_select() -> dict:
     except httpx.HTTPError as exc:
         return {"connected": False, "in_champ_select": False, "reason": f"Client injoignable : {exc}"}
     if response.status_code == 404:
+        global _last_message
+        _last_message = None  # next champ select may send again
         return {"connected": True, "in_champ_select": False, "reason": "Pas de champ select en cours."}
     response.raise_for_status()
     return {"connected": True, **parse_session(response.json(), champion_names())}
+
+
+ROLE_SHORT = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "bot": "Bot", "support": "Support"}
+_last_message: str | None = None
+
+
+def format_recommendations(suggestions: dict[str, list[dict]], my_role: str | None, top_n: int = 3) -> str | None:
+    """One-line English recommendation: the player's role if still open, else every open role."""
+    roles = [my_role] if my_role in suggestions else list(suggestions)
+    parts = []
+    for role in roles:
+        champs = [s["champion"] for s in suggestions[role][:top_n]]
+        if champs:
+            parts.append(f"{ROLE_SHORT.get(role, role)}: {', '.join(champs)}")
+    return f"Pro comp picks - {' | '.join(parts)}" if parts else None
+
+
+def send_lobby_message(text: str) -> bool:
+    """Post `text` in the champ select chat; False when unavailable or identical to the last message."""
+    global _last_message
+    if text == _last_message:
+        return False
+    creds = find_credentials()
+    if not creds:
+        return False
+    port, password = creds
+    base = f"https://127.0.0.1:{port}/lol-chat/v1/conversations"
+    with httpx.Client(auth=("riot", password), verify=False, timeout=5) as client:
+        conversations = client.get(base)
+        conversations.raise_for_status()
+        chat = next((c for c in conversations.json() if c.get("type") == "championSelect"), None)
+        if not chat:
+            return False
+        client.post(f"{base}/{chat['id']}/messages", json={"body": text, "type": "chat"}).raise_for_status()
+    _last_message = text
+    return True
