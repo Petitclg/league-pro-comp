@@ -72,7 +72,9 @@ function Shell({ meta, filters, setFilters }: { meta: Meta; filters: Filters; se
   return (
     <ScopeContext.Provider value={scope}>
       <header className="top">
-        <h1>LoL Pro Comp</h1>
+        <h1>
+          LoL Pro Comp <small className="version">v{meta.version}</small>
+        </h1>
         <nav>
           {TABS.map((t) => (
             <a key={t.id} href={href(t.id)} className={current === t.id || (t.id === 'drafts' && current === 'game') ? 'active' : ''}>
