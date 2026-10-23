@@ -45,6 +45,7 @@ export interface ImportStatus {
   current?: string | null
   log?: string[]
   error?: string | null
+  repair?: boolean // started by the app itself to correct data imported by an older version
 }
 
 export const DEFAULT_LEAGUE = 'LCK'

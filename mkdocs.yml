@@ -1,0 +1,19 @@
+site_name: LoL Pro Comp
+docs_dir: docs
+theme:
+  name: material
+  language: fr
+nav:
+  - Accueil: index.md
+  - Exigences: requirements.md
+  - Architecture: architecture.md
+  - Modèle de données: data-model.md
+  - API: api.md
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format

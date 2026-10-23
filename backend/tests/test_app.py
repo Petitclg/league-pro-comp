@@ -36,6 +36,21 @@ def test_parse_game_uses_roles_and_player_stats():
     assert len(game["bans"]) == 10 and game["sides"][1]["kills"] == 12
 
 
+def test_parse_game_follows_champions_when_scoreboard_sides_are_swapped():
+    row = {"GameId": "G1", "Team1": "A", "Team2": "B", "Winner": "1", "Team1Kills": "1", "Team2Kills": "20"}
+    players = {}
+    for side in (1, 2):
+        for i, role in enumerate(["top", "jungle", "mid", "bot", "support"], 1):
+            row[f"Team{side}Pick{i}"] = f"S{side}C{i}"
+            row[f"Team{side}Role{i}"] = role
+            # the scoreboard lists team B first
+            players[(3 - side, role)] = {"Link": f"P{side}{i}", "Champion": f"S{side}C{i}", "Kills": str(side)}
+    game = parse_game(row, players)
+    top = next(p for p in game["picks"] if p["side"] == 1 and p["role"] == "top")
+    assert top["player"] == "P11" and top["kills"] == 1
+    assert game["sides"][1]["kills"] == 20 and game["sides"][2]["kills"] == 1
+
+
 def test_parse_game_rejects_incomplete_draft():
     assert parse_game({"GameId": "G", "Team1": "A", "Team2": "B", "Team1Pick1": "Ahri"}) is None
 

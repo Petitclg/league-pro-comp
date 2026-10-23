@@ -991,6 +991,17 @@ ul.plain li {
   background: var(--accent);
   transition: width 0.4s;
 }
+.repair-banner {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  font-size: 0.88rem;
+}
+.repair-banner.error {
+  border-color: var(--red);
+}
 .import-log {
   max-height: 160px;
   overflow: auto;

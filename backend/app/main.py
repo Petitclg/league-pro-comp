@@ -37,6 +37,11 @@ def _warm_up() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     threading.Thread(target=_warm_up, daemon=True).start()
+    if runtime.desktop:  # installed apps hold data imported by older versions; a dev server is refreshed by hand
+        try:
+            importer.start_repair()
+        except Exception:  # best effort: the app works with the data it has
+            pass
     yield
 
 

@@ -16,7 +16,7 @@ from datetime import date
 
 import httpx
 
-from .db import ROLES, connect, save_game, save_match
+from .db import ROLES, connect, mark_ingest_revision, save_game, save_match
 from .leagues import INTERNATIONAL, LEAGUES, owner_league
 
 EXPORT_URL = "https://lol.fandom.com/wiki/Special:CargoExport"
@@ -69,6 +69,19 @@ def _float(value) -> float | None:
         return None
 
 
+def _scoreboard_sides(row: dict, players: dict[tuple[int, str], dict]) -> dict[int, int]:
+    """Draft side -> scoreboard side holding the same champions.
+
+    Leaguepedia sometimes lists the two teams in opposite order in the draft and in the scoreboard
+    (Worlds games), so the side of a draft cannot be assumed to be the scoreboard's side."""
+    played = {r.get("Champion"): side for (side, _), r in players.items()}
+    mapping = {}
+    for side in (1, 2):
+        votes = [played[c] for i in range(1, 6) if (c := (row.get(f"Team{side}Pick{i}") or "").strip()) in played]
+        mapping[side] = max((1, 2), key=votes.count) if votes else side
+    return mapping if mapping[1] != mapping[2] else {1: 1, 2: 2}
+
+
 def parse_game(row: dict, players: dict[tuple[int, str], dict] | None = None) -> dict | None:
     """Convert one joined Cargo row into a game dict, or None if the draft is incomplete.
 
@@ -77,6 +90,7 @@ def parse_game(row: dict, players: dict[tuple[int, str], dict] | None = None) ->
     players = players or {}
     picks: list[dict] = []
     bans: list[tuple[int, int, str]] = []
+    scoreboard_side = _scoreboard_sides(row, players)
     for side in (1, 2):
         by_role_order = [c.strip() for c in (row.get(f"Team{side}PicksByRoleOrder") or "").split(",")]
         role_of = dict(zip(by_role_order, ROLES)) if len(by_role_order) == 5 else {}
@@ -88,7 +102,7 @@ def parse_game(row: dict, players: dict[tuple[int, str], dict] | None = None) ->
             role = normalize_role(row.get(f"Team{side}Role{order}")) or role_of.get(champion)
             if not role:
                 return None
-            stats = players.get((side, role), {})
+            stats = players.get((scoreboard_side[side], role), {})
             side_picks.append({
                 "side": side, "pick_order": order, "role": role, "champion": champion,
                 "player": stats.get("Link") or None,
@@ -119,7 +133,7 @@ def parse_game(row: dict, players: dict[tuple[int, str], dict] | None = None) ->
         "duration": _float(row.get("Gamelength Number")),
         "source": "leaguepedia",
         "sides": {
-            side: {k.lower(): _int(row.get(f"Team{side}{k}"))
+            side: {k.lower(): _int(row.get(f"Team{scoreboard_side[side]}{k}"))
                    for k in ("Kills", "Gold", "Towers", "Dragons", "Barons")}
             for side in (1, 2)
         },
@@ -231,6 +245,12 @@ def repair_leagues(conn) -> int:
     return fixed
 
 
+def covers_stored_games(conn, league: str, first_year: int) -> bool:
+    """True when an import starting at `first_year` re-imported every game stored for the league."""
+    oldest = conn.execute("SELECT MIN(substr(date, 1, 4)) FROM games WHERE league = ?", (league,)).fetchone()[0]
+    return not oldest or first_year <= int(oldest)
+
+
 def ingest(leagues: list[str], years: list[int], on_step=None, cancelled=None) -> int:
     """Import every league-year. `on_step(league, year, saved, skipped, done, total)` reports progress
     and `cancelled()` lets a caller (the app's import button) stop between two league-years."""
@@ -241,6 +261,7 @@ def ingest(leagues: list[str], years: list[int], on_step=None, cancelled=None) -
     with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=120, follow_redirects=True) as client:
         for league in leagues:
             league_total = 0
+            failed = False
             for year in years:
                 if cancelled and cancelled():
                     repair_leagues(conn)
@@ -250,6 +271,7 @@ def ingest(leagues: list[str], years: list[int], on_step=None, cancelled=None) -
                 try:
                     saved, skipped = ingest_year(client, conn, league, year)
                 except RuntimeError as exc:
+                    failed = True
                     print(f"{league} {year}: FAILED ({exc})", file=sys.stderr, flush=True)
                 league_total += saved
                 done += 1
@@ -258,6 +280,8 @@ def ingest(leagues: list[str], years: list[int], on_step=None, cancelled=None) -
                 if on_step:
                     on_step(league, year, saved, skipped, done, steps)
             total += league_total
+            if not failed and covers_stored_games(conn, league, years[0]):
+                mark_ingest_revision(conn, league)
             print(f"== {league}: {league_total} games", flush=True)
     fixed = repair_leagues(conn)
     if fixed:

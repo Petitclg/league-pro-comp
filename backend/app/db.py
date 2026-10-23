@@ -9,7 +9,15 @@ DB_PATH = DATA_DIR / "lck.db"
 
 SCHEMA_VERSION = 3
 
+# Bump when the import rules change: leagues imported under an older revision are re-imported on the next start.
+# 2: scoreboard players and side stats follow the champions of each draft side (wrong when Leaguepedia lists the teams in opposite order).
+INGEST_REVISION = 2
+
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS ingest_revisions (
+    league TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS matches (
     match_id TEXT PRIMARY KEY,
     league TEXT NOT NULL DEFAULT 'LCK',
@@ -109,6 +117,19 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+
+
+def ingest_revision(conn: sqlite3.Connection, league: str) -> int:
+    """Import revision of a league (0 for data imported before revisions existed)."""
+    conn.executescript("CREATE TABLE IF NOT EXISTS ingest_revisions (league TEXT PRIMARY KEY, revision INTEGER NOT NULL)")
+    row = conn.execute("SELECT revision FROM ingest_revisions WHERE league = ?", (league,)).fetchone()
+    return row[0] if row else 0
+
+
+def mark_ingest_revision(conn: sqlite3.Connection, league: str) -> None:
+    ingest_revision(conn, league)  # makes sure the table exists in a database created by an older version
+    conn.execute("INSERT OR REPLACE INTO ingest_revisions (league, revision) VALUES (?, ?)", (league, INGEST_REVISION))
+    conn.commit()
 
 
 def save_match(conn: sqlite3.Connection, match: dict) -> None:

@@ -10,6 +10,7 @@ import { DuoPage } from './DuoPage'
 import { FilterBar } from './FilterBar'
 import { PairsPage } from './PairsPage'
 import { RecordsPage } from './RecordsPage'
+import { RepairBanner } from './RepairBanner'
 import { href, useRoute } from './router'
 import { ScopeContext } from './scope'
 import { SeriesList } from './SeriesView'
@@ -152,6 +153,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <RepairBanner />
       {error && (
         <p className="error">
           Données indisponibles pour {leaguesKey} : {error}{' '}
