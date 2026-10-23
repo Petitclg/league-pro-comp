@@ -8,12 +8,12 @@ from .synth import build_db
 ROLES = ["top", "jungle", "mid", "bot", "support"]
 
 
-def _game(gid, side1, side2, bans1=(), bans2=(), locked=(), winner=1):
+def _game(gid, side1, side2, bans1=(), bans2=(), locked=(), winner=1, patch="25.1", day="2025-01-01"):
     """side1 / side2: {role: (champion, slot)}; bans: [(champion, order)]."""
     def side(picks, bans, win):
         return {"team": "T", "win": win, "stats": {}, "bans": [c for c, _ in bans], "ban_order": [o for _, o in bans],
                 "picks": [{"role": r, "champion": c, "slot": s, "order": 1, "player": None} for r, (c, s) in picks.items()]}
-    return {"game_id": gid, "game_number": 1, "date": "2025-01-01", "patch": "25.1", "tournament": "X", "duration": 30,
+    return {"game_id": gid, "game_number": 1, "date": day, "patch": patch, "tournament": "X", "duration": 30,
             "fearless": bool(locked), "locked": list(locked), "winner": winner,
             "sides": {1: side(side1, bans1, winner == 1), 2: side(side2, bans2, winner == 2)}}
 
@@ -111,3 +111,17 @@ def test_pair_rows_carry_open_stats_consistent_with_games_played():
         o = r["open"]
         assert o["realised"] == r["games"] or o["open"] < r["games"]  # games locked by Fearless are left out
         assert o["realised"] <= o["open"] and o["open"] == o["realised"] + o["unused"]
+
+
+def test_decay_weights_comps_by_how_many_patches_before_the_newest():
+    duo = _fill({"top": ("Aatrox", 1), "mid": ("Azir", 4)}, 5)
+    games = [_game(f"old{i}", duo, _fill({}, 2), winner=1, patch="25.1", day="2025-01-01") for i in range(2)]
+    games += [_game(f"mid{i}", duo, _fill({}, 2), winner=2, patch="25.2", day="2025-02-01") for i in range(2)]
+    games += [_game(f"new{i}", duo, _fill({}, 2), winner=2, patch="25.3", day="2025-03-01") for i in range(2)]
+    s = _index(games).stats(A, B, decay=0.5)
+    assert (s["wins"], s["decided"]) == (2, 6)  # raw counts are untouched
+    w = s["weighted"]  # weights 0.25, 0.5, 1 for two games each
+    assert (w["decided"], w["wins"], w["open"], w["realised"]) == (3.5, 0.5, 3.5, 3.5)
+    assert "weighted" not in _index(games).stats(A, B)
+    # with 6 comps (three games) the newest patch is 25.2: two old games weigh 0.5 each, the new one 1
+    assert _index(games).stats(A, B, limit=6, decay=0.5)["weighted"]["decided"] == 2.0

@@ -14,6 +14,29 @@ export function rowLink(go: () => void) {
   }
 }
 
+const UI_PREFIX = 'lolpro-ui:'
+
+/** `useState` kept in localStorage, so a page keeps its settings when the user leaves it or restarts the app. */
+export function usePersistentState<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(UI_PREFIX + key)
+      if (raw !== null) return JSON.parse(raw) as T
+    } catch {
+      // unreadable or blocked storage: start from the default
+    }
+    return initial
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(UI_PREFIX + key, JSON.stringify(value))
+    } catch {
+      // storage full or blocked: the setting is just not remembered
+    }
+  }, [key, value])
+  return [value, setValue] as const
+}
+
 /** `value`, but only after it has stopped changing for `ms`. */
 export function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value)

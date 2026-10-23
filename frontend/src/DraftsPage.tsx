@@ -1,10 +1,10 @@
-import { useState } from 'react'
 import { ChampionSelect } from './ChampionSelect'
 import { SeriesList } from './SeriesView'
+import { usePersistentState } from './utils'
 
 export function DraftsPage() {
-  const [champion, setChampion] = useState('')
-  const [role, setRole] = useState('')
+  const [champion, setChampion] = usePersistentState('drafts.champion', '')
+  const [role, setRole] = usePersistentState('drafts.role', '')
   return (
     <section>
       <div className="filters">

@@ -1,19 +1,19 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { api, ROLE_LABEL, type ChampionRow, type Role } from './api'
 import { Champ } from './Champ'
 import { ChampionSelect } from './ChampionSelect'
 import { navigate } from './router'
 import { useScope } from './scope'
-import { pct, useAsync } from './utils'
+import { pct, useAsync, usePersistentState } from './utils'
 import { TierBadge } from './Widgets'
 
 type SortKey = 'strength' | 'presence' | 'picks' | 'bans' | 'winrate' | 'wr_adjusted' | 'pick_rate' | 'ban_rate'
 
 export function ChampionsPage() {
   const { filters } = useScope()
-  const [sort, setSort] = useState<SortKey>('strength')
-  const [role, setRole] = useState('')
-  const [minGames, setMinGames] = useState(1)
+  const [sort, setSort] = usePersistentState<SortKey>('champions.sort', 'strength')
+  const [role, setRole] = usePersistentState('champions.role', '')
+  const [minGames, setMinGames] = usePersistentState('champions.minGames', 1)
   const { data, loading, error } = useAsync(() => api.champions(filters), [filters])
 
   const rows = useMemo(() => {

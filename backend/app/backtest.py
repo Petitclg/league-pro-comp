@@ -49,6 +49,12 @@ VARIANTS = {
     "duo: open rate x2 + winrate x1": Params(combo_strength=2, pair_wr_strength=1),
     "duo: open rate x0.5 + winrate x1": Params(combo_strength=0.5, pair_wr_strength=1),
     "duo: open rate x4 + winrate x4": Params(combo_strength=4, pair_wr_strength=4),
+    "duo patches 0.5: open x1 + winrate x1": Params(combo_strength=1, pair_wr_strength=1, pair_patch_decay=0.5),
+    "duo patches 0.5: open x1 + winrate x2": Params(combo_strength=1, pair_wr_strength=2, pair_patch_decay=0.5),
+    "duo patches 0.7: open x1 + winrate x1": Params(combo_strength=1, pair_wr_strength=1, pair_patch_decay=0.7),
+    "duo patches 0.7: open x1 + winrate x2": Params(combo_strength=1, pair_wr_strength=2, pair_patch_decay=0.7),
+    "duo patches 0.85: open x1 + winrate x1": Params(combo_strength=1, pair_wr_strength=1, pair_patch_decay=0.85),
+    "duo patches 0.7: open x2 + winrate x2": Params(combo_strength=2, pair_wr_strength=2, pair_patch_decay=0.7),
 }
 
 
@@ -74,7 +80,7 @@ def evaluate(comps: list[dict], cases: list[tuple], params: Params, index: Combo
     hits = dict.fromkeys(TOP, 0)
     reciprocal = 0.0
     for history, locked, enemy, role, answer in cases:
-        combos = (lambda a, b, n=history: index.stats(a, b, n)) if index else None  # the duo stats of earlier comps only
+        combos = (lambda a, b, decay=None, n=history: index.stats(a, b, n, decay)) if index else None  # earlier comps only
         result = suggest(comps[:history], locked, enemy=enemy, top_n=max(TOP), params=params, details=False, combos=combos)
         names = [s["champion"] for s in result["suggestions"][role]]
         if answer in names:

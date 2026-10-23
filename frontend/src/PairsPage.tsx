@@ -1,21 +1,20 @@
-import { useState } from 'react'
 import { api, ROLES, ROLE_LABEL } from './api'
 import { Champ } from './Champ'
 import { ChampionSelect } from './ChampionSelect'
 import { href, navigate } from './router'
 import { useScope } from './scope'
-import { pct, rowLink, useAsync } from './utils'
+import { pct, rowLink, useAsync, usePersistentState } from './utils'
 import { ComboRate, PairPresence, WrBar } from './Widgets'
 
 export function PairsPage() {
   const { filters } = useScope()
-  const [minGames, setMinGames] = useState(5)
-  const [minLiftText, setMinLiftText] = useState('')
+  const [minGames, setMinGames] = usePersistentState('pairs.minGames', 5)
+  const [minLiftText, setMinLiftText] = usePersistentState('pairs.minLift', '')
   const minLift = Math.max(0, Number(minLiftText.replace(',', '.')) || 0)
-  const [roleA, setRoleA] = useState('')
-  const [roleB, setRoleB] = useState('')
-  const [champion, setChampion] = useState('')
-  const [sort, setSort] = useState('games')
+  const [roleA, setRoleA] = usePersistentState('pairs.roleA', '')
+  const [roleB, setRoleB] = usePersistentState('pairs.roleB', '')
+  const [champion, setChampion] = usePersistentState('pairs.champion', '')
+  const [sort, setSort] = usePersistentState('pairs.sort', 'games')
   const { data, loading, error } = useAsync(
     () =>
       api.pairs(filters, {

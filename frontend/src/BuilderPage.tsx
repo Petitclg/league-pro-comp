@@ -3,7 +3,7 @@ import { api, ROLES, ROLE_LABEL, selectedLeagues, type LiveState, type Role } fr
 import { Champ } from './Champ'
 import { ChampionSelect } from './ChampionSelect'
 import { useScope } from './scope'
-import { pct, useAsync, useDebounced } from './utils'
+import { pct, useAsync, useDebounced, usePersistentState } from './utils'
 import { comboBreakdown } from './Widgets'
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -73,13 +73,13 @@ function useTracker(enabled: boolean, onState: (s: LiveState) => void) {
 
 export function BuilderPage() {
   const { filters } = useScope()
-  const [picks, setPicks] = useState<Partial<Record<Role, string>>>({})
-  const [enemy, setEnemy] = useState<string[]>([])
-  const [bans, setBans] = useState<string[]>([])
-  const [fearlessLocked, setFearlessLocked] = useState<string[]>([])
+  const [picks, setPicks] = usePersistentState<Partial<Record<Role, string>>>('builder.picks', {})
+  const [enemy, setEnemy] = usePersistentState<string[]>('builder.enemy', [])
+  const [bans, setBans] = usePersistentState<string[]>('builder.bans', [])
+  const [fearlessLocked, setFearlessLocked] = usePersistentState<string[]>('builder.fearless', [])
   const [tracking, setTracking] = useState(false)
   const [sendToChat, setSendToChat] = useState(false)
-  const [expand, setExpand] = useState(false)
+  const [expand, setExpand] = usePersistentState('builder.expand', false)
   const status = useTracker(tracking, (s) => {
     // Keep the same references when nothing changed, otherwise every poll would trigger a recompute.
     setPicks((prev) => (sameJson(prev, s.my_team ?? {}) ? prev : (s.my_team ?? {})))
@@ -147,6 +147,18 @@ export function BuilderPage() {
               : (status.reason ?? 'En attente du client…')}
           </span>
         )}
+        <button
+          className="link-btn"
+          title="La draft en cours est conservée quand vous changez de page ou fermez l'application"
+          onClick={() => {
+            setPicks({})
+            setEnemy([])
+            setBans([])
+            setFearlessLocked([])
+          }}
+        >
+          Nouvelle draft
+        </button>
       </div>
       <p className="muted">
         Renseignez les champions déjà choisis : les suggestions se basent sur les comps pro qui leur ressemblent (pondérées par le

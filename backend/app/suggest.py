@@ -9,7 +9,7 @@ from .db import ROLES
 from .stats import COMBO_PRIOR, Tally
 from .strength import shrunk_winrate
 
-ComboStats = Callable[[tuple[str, str], tuple[str, str]], dict]  # (role, champion) x 2 -> combos.ComboIndex.stats
+ComboStats = Callable[..., dict]  # (role, champion) x 2 [, decay=...] -> combos.ComboIndex.stats
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class Params:
     cooc_power: float = 1.0  # each locked champion's lift is raised to x (< 1 tempers correlated evidence)
     combo_strength: float = 1.0  # a duo with a locked champion that pros take whenever it is open: score *= 1 + x * rate * (0.5 + 2 * (winrate - 0.5))
     pair_wr_strength: float = 0.5  # a duo with a locked champion that wins a lot: score *= 1 + x * (shrunk duo winrate - 0.5)
+    pair_patch_decay: float | None = None  # duo stats of the bonuses: a comp from the patch n before the newest weighs x^n; None: all comps equal
 
 
 DEFAULT = Params()
@@ -129,11 +130,12 @@ def _pair_boost(combos: ComboStats, locked_items: list[tuple[str, str]], role: s
     """Bonus of a candidate for the duos it forms with the locked champions (see `Params`)."""
     boost = 0.0
     for item in locked_items:
-        info = combos(item, (role, champ))
+        info = combos(item, (role, champ), decay=params.pair_patch_decay)
         if not info["open"]:
             continue
-        rate = info["realised"] / (info["open"] + COMBO_PRIOR)
-        edge = shrunk_winrate(info["wins"], info["decided"]) - 0.5
+        counts = info.get("weighted") or info
+        rate = counts["realised"] / (counts["open"] + COMBO_PRIOR)
+        edge = shrunk_winrate(counts["wins"], counts["decided"]) - 0.5
         boost += params.pair_wr_strength * edge + params.combo_strength * rate * (0.5 + 2 * edge)
     return max(-0.3, min(boost, 0.75))
 

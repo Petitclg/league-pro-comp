@@ -52,6 +52,7 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 | REQ-UI-1 | Page Drafts : une carte par série (score, Bo, Fearless, stage), une ligne par game, Blue à gauche avec la première sélection ; l'équipe, les joueurs et les picks d'un bloc de côté sont cohérents (REQ-DATA-4). | `SeriesView.tsx` |
 | REQ-UI-2 | Numéros d'ordre de draft sur les icônes (picks 1-10, bans 1-10) et highlights (synergie, counter de lane, signature, pick rare). | `stats.game_highlights` |
 | REQ-UI-3 | Le périmètre (ligues, filtres) est global et persisté localement. | `scope.ts`, `App.tsx` |
+| REQ-UI-6 | **Suivi de navigation** : chaque page garde ses réglages (tri, rôles, minimums, champion filtré) quand on la quitte et au redémarrage ; la draft en cours du tracker (picks, picks adverses, bans, champions Fearless, mode élargi) est conservée, avec un bouton « Nouvelle draft » pour la vider ; un lancement sans page dans l'adresse rouvre la dernière page visitée. Le tracker et l'envoi dans le chat restent désactivés au démarrage. | `usePersistentState` (`utils.ts`), `router.ts` |
 | REQ-UI-4 | Recherche de champion tolérante (accents, apostrophes, surnoms, fautes). | `fuzzy.test.ts` |
 | REQ-UI-5 | Pages : Drafts, Champions, Paires, Synergies contrées, Records, Suggestions / Tracker, Données. | `App.tsx` |
 
