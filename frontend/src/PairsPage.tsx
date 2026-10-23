@@ -75,9 +75,10 @@ export function PairsPage() {
         La <em>présence</em> de la paire, comme celle d'un champion, ajoute aux parties où elle est <strong>jouée</strong> (barre dorée) celles
         où les adversaires la <strong>cassent par un ban</strong> (barre rouge) : un des deux champions est banni plus souvent que si les
         bans étaient indépendants, au même patch. Deux champions forts qui sont simplement bannis ensemble ne comptent pas. Détail au survol.
-        La colonne <em>Jouée si ouverte</em> répond à une autre question : quand une équipe prend un des deux champions alors que l'autre est
-        encore disponible (ni banni, ni pris par l'adversaire, poste libre), combien de fois prend-elle aussi le second ? 100 % = la paire est
-        systématiquement jouée dès qu'elle peut l'être ; le détail (prise par l'adversaire, bannie ensuite, laissée de côté) est au survol.
+        La colonne <em>Jouée si ouverte</em> répond à une autre question : quand une équipe prend un des deux champions et que l'autre est
+        encore disponible au moment où elle remplit son poste, combien de fois prend-elle aussi le second ? Si l'adversaire l'a pris ou banni
+        avant, la paire est contrée : elle n'est pas ouverte et n'entre pas dans le taux. 100 % = la paire est systématiquement jouée dès
+        qu'elle peut l'être ; le détail est au survol.
         Ces deux chiffres alimentent aussi les suggestions du tracker.
       </p>
       {error && <p className="error">{error}</p>}
@@ -90,7 +91,7 @@ export function PairsPage() {
               <th>Parties</th>
               <th>Pick rate</th>
               <th title="Parties où la paire est jouée ou contrée par les adversaires, sur l'ensemble des parties">Présence</th>
-              <th title="Quand une équipe prend un des deux champions alors que l'autre est encore disponible, part des fois où elle prend les deux">Jouée si ouverte</th>
+              <th title="Quand une équipe prend un des deux champions et que l'autre est encore disponible à son pick, part des fois où elle prend les deux (hors paires contrées)">Jouée si ouverte</th>
               <th>Winrate</th>
               <th>Lift</th>
             </tr>

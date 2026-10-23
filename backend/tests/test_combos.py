@@ -38,24 +38,27 @@ A, B = ("top", "Aatrox"), ("mid", "Azir")
 
 
 def _scenario():
-    # side 1 picks Aatrox first (slot 1 = time 7); where is Azir?
+    # side 1 picks Aatrox first (slot 1 = time 7); where is Azir when side 1 fills its mid role?
     return [
         _game("realised", _fill({"top": ("Aatrox", 1), "mid": ("Azir", 4)}, 5), _fill({}, 2)),
-        _game("taken", _fill({"top": ("Aatrox", 1)}, 4), _fill({"mid": ("Azir", 2)}, 3)),
-        _game("banned", _fill({"top": ("Aatrox", 1)}, 4), _fill({}, 2), bans2=[("Azir", 8)]),
+        _game("taken", _fill({"top": ("Aatrox", 1)}, 4), _fill({"mid": ("Azir", 2)}, 3)),  # countered before mid is picked
+        _game("banned", _fill({"top": ("Aatrox", 1)}, 7), _fill({}, 2), bans2=[("Azir", 8)]),  # banned before mid is picked
         _game("unused", _fill({"top": ("Aatrox", 1)}, 4), _fill({}, 2)),
         _game("banned first", _fill({"top": ("Aatrox", 1)}, 4), _fill({}, 2), bans2=[("Azir", 1)]),
-        _game("taken first", _fill({"top": ("Aatrox", 4)}, 5), _fill({"mid": ("Azir", 2)}, 3)),
+        _game("taken after", _fill({"top": ("Aatrox", 4)}, 5), _fill({"mid": ("Azir", 2)}, 3)),
         _game("locked", _fill({"top": ("Aatrox", 1)}, 4), _fill({}, 2), locked=["Azir"]),
         _game("role filled", _fill({"top": ("Aatrox", 3), "mid": ("Zed", 1)}, 4), _fill({}, 2)),
+        _game("banned after", _fill({"top": ("Aatrox", 1)}, 4), _fill({}, 2), bans2=[("Azir", 10)]),
     ]
 
 
-def test_open_duo_is_counted_only_when_the_partner_was_available():
+def test_open_duo_excludes_what_the_opponent_countered_before_the_team_could_pick():
     s = _index(_scenario()).stats(A, B)
-    # "taken first" counts for side 2: it picked Azir first and side 1 then took Aatrox
-    assert (s["open"], s["realised"], s["taken"], s["banned"], s["unused"]) == (5, 1, 2, 1, 1)
-    assert s["rate"] == 0.2 and s["wins"] == 1 and s["decided"] == 1
+    # open = realised + unused. "taken after" counts for side 2: it filled top (slot 3) while Aatrox was
+    # still there. "banned after": Azir was banned once side 1 had picked something else for mid.
+    assert (s["open"], s["realised"], s["unused"]) == (4, 1, 3)
+    assert (s["taken"], s["banned"]) == (1, 1)  # countered: not part of the open cases
+    assert s["rate"] == 0.25 and s["wins"] == 1 and s["decided"] == 1
     assert _index(_scenario()).stats(B, A) == s  # the order of the two slots does not matter
 
 
@@ -68,7 +71,7 @@ def test_opportunities_are_symmetric_when_the_other_member_comes_first():
 def test_limit_keeps_the_earliest_comps_only():
     idx = _index(_scenario())
     first_two = idx.stats(A, B, limit=4)  # comps are two per game: the first two games
-    assert first_two["open"] == 2 and first_two["realised"] == 1
+    assert (first_two["open"], first_two["realised"], first_two["taken"]) == (1, 1, 1)
 
 
 def test_duo_bonus_favours_a_duo_taken_whenever_open_and_winning():
@@ -107,4 +110,4 @@ def test_pair_rows_carry_open_stats_consistent_with_games_played():
     for r in rows:
         o = r["open"]
         assert o["realised"] == r["games"] or o["open"] < r["games"]  # games locked by Fearless are left out
-        assert o["realised"] <= o["open"] and o["open"] == o["realised"] + o["taken"] + o["banned"] + o["unused"]
+        assert o["realised"] <= o["open"] and o["open"] == o["realised"] + o["unused"]

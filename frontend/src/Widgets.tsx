@@ -2,11 +2,13 @@ import type { ReactNode } from 'react'
 import type { ComboOpen, PairRow, Strength } from './api'
 import { pct } from './utils'
 
-/** What became of a duo each time it was open: played, taken by the opponent, banned, or left alone. */
+/** What became of a duo each time a team picked one member: open (played or not) or countered before it could pick the other. */
 export function comboBreakdown(o: Pick<ComboOpen, 'open' | 'realised' | 'taken' | 'banned' | 'unused'>): string {
   return (
-    `Ouverte ${o.open} fois (un des deux picks, l'autre encore disponible et son poste libre) :\n` +
-    `  jouée : ${o.realised}\n  prise par l'adversaire ensuite : ${o.taken}\n  bannie ensuite : ${o.banned}\n  laissée de côté : ${o.unused}`
+    `Ouverte ${o.open} fois : l'autre champion était encore disponible quand l'équipe a rempli son poste.\n` +
+    `  jouée : ${o.realised}\n  disponible mais un autre champion pick à sa place : ${o.unused}\n` +
+    `Contrée avant que l'équipe puisse la prendre (non comptée dans les cas ouverts) : ${o.taken + o.banned}\n` +
+    `  prise par l'adversaire : ${o.taken}\n  bannie : ${o.banned}`
   )
 }
 

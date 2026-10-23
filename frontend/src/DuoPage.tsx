@@ -9,21 +9,22 @@ import { Card, Stat, WrBar } from './Widgets'
 
 const OUTCOMES = [
   ['realised', 'jouée', 'open-realised'],
-  ['taken', "prise par l'adversaire ensuite", 'open-taken'],
-  ['banned', 'bannie ensuite', 'open-banned'],
-  ['unused', 'laissée de côté', 'open-unused'],
+  ['unused', 'disponible mais non prise', 'open-unused'],
+  ['taken', "contrée : prise par l'adversaire", 'open-taken'],
+  ['banned', 'contrée : bannie', 'open-banned'],
 ] as const
 
 /** What the teams did each time the duo was open (one member picked, the other still available). */
 function OpenCard({ a, b, rows }: { a: string; b: string; rows: NonNullable<DuoDetail['open']> }) {
-  const shown = rows.filter((r) => r.open > 0)
+  const shown = rows.filter((r) => r.open + r.taken + r.banned > 0)
   if (!shown.length) return null
   return (
     <Card title="Quand la paire est ouverte" className="open-card">
       <p className="muted">
-        La paire est <em>ouverte</em> quand une équipe prend {a} ou {b} alors que l'autre est encore disponible : ni banni, ni pris par
-        l'adversaire, et son poste n'est pas déjà occupé. 100 % jouée = les équipes la prennent systématiquement dès qu'elles le peuvent ;
-        un taux bas avec beaucoup de « prise par l'adversaire » ou « bannie ensuite » montre une paire qu'on cherche à casser.
+        La paire est <em>ouverte</em> quand une équipe prend {a} ou {b} et que l'autre est encore disponible au moment où elle remplit son
+        poste : l'équipe la prend alors (jouée) ou pick autre chose. Si l'adversaire a pris ou banni le partenaire avant, la paire est
+        <em> contrée</em> : elle n'était pas ouverte et n'entre pas dans le taux. 100 % = les équipes la prennent systématiquement
+        dès qu'elles le peuvent.
       </p>
       {shown.map((r) => (
         <div key={`${r.a_role}${r.b_role}`} className="open-row">
@@ -32,6 +33,7 @@ function OpenCard({ a, b, rows }: { a: string; b: string; rows: NonNullable<DuoD
           </strong>
           <span>
             jouée <strong>{pct(r.rate)}</strong> du temps quand elle est ouverte ({r.realised} / {r.open})
+            {r.taken + r.banned > 0 && <> · contrée avant {r.taken + r.banned} fois</>}
             {r.winrate != null && (
               <>
                 {' '}· winrate quand elle est jouée <strong>{pct(r.winrate)}</strong>
@@ -41,7 +43,7 @@ function OpenCard({ a, b, rows }: { a: string; b: string; rows: NonNullable<DuoD
           <span className="open-bar" role="img" aria-label="Répartition des cas où la paire était ouverte">
             {OUTCOMES.map(([key, label, cls]) =>
               r[key] > 0 ? (
-                <span key={key} className={cls} style={{ width: `${(r[key] / r.open) * 100}%` }} title={`${label} : ${r[key]}`} />
+                <span key={key} className={cls} style={{ width: `${(r[key] / (r.open + r.taken + r.banned)) * 100}%` }} title={`${label} : ${r[key]}`} />
               ) : null,
             )}
           </span>

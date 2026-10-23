@@ -1,13 +1,14 @@
 """How often a duo is played when it can be played.
 
-A duo (A in role ra, B in role rb) is "open" for a team at the moment it picks the first of the two
-when the other is still available: not banned, not taken by the opponent, not locked by Fearless,
-and its role not yet filled by an earlier pick of the team. Every open case ends in one of:
-  - realised: the team ends up with both;
-  - taken:    the opponent picks the partner afterwards;
-  - banned:   the partner is banned afterwards (phase-2 bans);
-  - unused:   nobody takes the partner.
-A partner the team plays in another role is left out (the duo was not at stake as such).
+A duo (A in role ra, B in role rb) is looked at for a team that picks one member. The decision
+that matters is the team's pick for the partner's role: if the partner is still available then
+(not banned, not taken by the opponent, not locked by Fearless), the duo is **open** and the team
+either takes it (realised) or picks another champion there (unused). If the partner is gone before
+the team fills that role, the opponent countered the duo, which is no choice of the team:
+  - taken:  the opponent picked the partner before the team filled its role;
+  - banned: the partner was banned before the team filled its role.
+open = realised + unused; rate = realised / open. A partner already unavailable when the team picks
+the first member, one the team plays in another role, or a role already filled, are left out.
 """
 from bisect import bisect_left
 from collections import defaultdict
@@ -59,14 +60,20 @@ class ComboIndex:
                 continue
             mine, other = (a, b) if has_a else (b, a)
             t = _pick_time(players[mine[0]]["slot"])
-            if _pick_time(players[other[0]]["slot"]) < t:
+            decision = _pick_time(players[other[0]]["slot"])  # when the team fills the partner's role
+            if decision < t:
                 continue  # the partner's role was already filled
             partner = timeline(g).get(other[1], {})
             pick, ban = partner.get("pick"), partner.get("ban")
             if (ban and ban[1] < t) or (pick and (pick[0] == c["side"] or pick[1] < t)):
                 continue  # not available when the first member was picked, or played in another role
-            out["open"] += 1
-            out["taken" if pick else "banned" if ban else "unused"] += 1
+            if pick and pick[1] < decision:
+                out["taken"] += 1
+            elif ban and ban[1] < decision:
+                out["banned"] += 1
+            else:
+                out["open"] += 1
+                out["unused"] += 1
         out["rate"] = round(out["realised"] / out["open"], 4) if out["open"] else None
         out["winrate"] = round(out["wins"] / out["decided"], 4) if out["decided"] else None
         return out
