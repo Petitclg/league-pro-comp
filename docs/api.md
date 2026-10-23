@@ -21,9 +21,9 @@ Les filtres entre eux sont combinés en ET.
 | GET | `/api/meta` | Périmètre : ligues, équipes, années, tournois, patchs, version, mode bureau |
 | GET | `/api/series` | Séries paginées (`limit` ≤ 100, `offset`) ; filtres `champion`, `role`, `with`, `versus`, `game` |
 | GET | `/api/champions` | Tableau des champions |
-| GET | `/api/champions/{name}` | Fiche d'un champion ; 404 si aucune donnée |
-| GET | `/api/pairs` | Paires ; `min_games`, `min_lift`, `role_a`, `role_b`, `champion`, `sort` (`games`, `winrate`, `lift`, `presence`), `limit` ≤ 500 |
-| GET | `/api/duo` | Détail d'une synergie ou d'un matchup (`kind`, `a`, `b`) |
+| GET | `/api/champions/{name}` | Fiche d'un champion ; 404 si aucune donnée. `matchups` : `games`, `wins`, `winrate`, `z`, `level`, `verdict` (`favorable`, `difficult` ou `null`) |
+| GET | `/api/pairs` | Paires ; `min_games`, `min_lift`, `role_a`, `role_b`, `champion`, `sort` (`games`, `winrate`, `lift`, `presence`, `realised`), `limit` ≤ 500. Chaque ligne porte `open` : `open`, `realised`, `taken`, `banned`, `unused`, `rate` (REQ-STAT-7) |
+| GET | `/api/duo` | Détail d'une synergie ou d'un matchup (`kind`, `a`, `b`) ; pour une synergie, `open` donne les mêmes compteurs par combinaison de rôles |
 | GET | `/api/denial` | Contre de synergie pour la paire `a`, `b` |
 | GET | `/api/countered-synergies` | Classement des synergies contrées (`limit` ≤ 50) |
 | GET | `/api/records` | Records |

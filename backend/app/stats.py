@@ -4,9 +4,10 @@ from itertools import combinations
 
 from .dataset import Dataset, Filters
 from .db import ROLES
-from .strength import champion_spots, global_spots, strength
+from .strength import champion_spots, global_spots, matchup_verdict, strength, wilson
 
 ROLE_INDEX = {r: i for i, r in enumerate(ROLES)}
+ROLE_LABEL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "bot": "Bot", "support": "Support"}
 
 MIN_SYNERGY_GAMES = 8
 MIN_SYNERGY_SINGLE = 15
@@ -15,6 +16,7 @@ MIN_COUNTER_GAMES = 5
 MIN_COUNTER_WR = 0.68
 MIN_SIGNATURE_GAMES = 15
 DURATION_RANGE = (12, 65)  # minutes; Leaguepedia has a few bogus lengths
+COMBO_PRIOR = 3  # virtual open cases never realised: 3/3 realised counts less than 30/30
 
 
 def winrate(wins: int, decided: int) -> float | None:
@@ -184,7 +186,7 @@ def champion_detail(ds: Dataset, champion: str, f: Filters) -> dict | None:
         for oc, t in opp.items():
             if t.games >= 2:
                 matchups.append({"role": role, "champion": oc, "games": t.games,
-                                 "wins": t.wins, "winrate": t.wr})
+                                 "wins": t.wins, "winrate": t.wr, **matchup_verdict(t.wins, t.decided)})
     matchups.sort(key=lambda m: (-m["games"], m["champion"]))
 
     n_games = len(ds.filter_games(base))
@@ -396,6 +398,21 @@ def pair_presence(ds: Dataset, f: Filters, pairs: list[dict]) -> None:
             p["realised_share"] = _div(p["games"], p["games"] + excess, 4)
 
 
+def combo_index(ds: Dataset, f: Filters):
+    from .combos import combo_index as build
+
+    base = Filters(**{**f.__dict__, "champion": None, "role": None})
+    return build(ds, base.key(), ds.filter_comps(base))
+
+
+def pair_openness(ds: Dataset, f: Filters, pairs: list[dict]) -> None:
+    """Adds `open` to each pair row (in place): how often the duo was played when it could be
+    (see combos.py). With a team filter, only that team's own drafts count."""
+    idx = combo_index(ds, f)
+    for p in pairs:
+        p["open"] = idx.stats((p["a"]["role"], p["a"]["champion"]), (p["b"]["role"], p["b"]["champion"]))
+
+
 def duo_detail(ds: Dataset, kind: str, a: str, b: str, f: Filters) -> dict:
     """Stats of a synergy pair (same side) or of a head-to-head matchup."""
     comps = ds.filter_comps(Filters(**{**f.__dict__, "champion": None, "role": None}))
@@ -415,10 +432,15 @@ def duo_detail(ds: Dataset, kind: str, a: str, b: str, f: Filters) -> dict:
             if ra and rb:
                 t.add(c["win"])
                 roles[(ra, rb)] += 1
-    return {
+    out = {
         "kind": kind, "a": a, "b": b, "games": t.games, "wins": t.wins, "winrate": t.wr,
         "roles": [{"a_role": ra, "b_role": rb, "games": n} for (ra, rb), n in roles.most_common()],
     }
+    if kind == "synergy":
+        out["open"] = [
+            {"a_role": ra, "b_role": rb, **combo_index(ds, f).stats((ra, a), (rb, b))} for (ra, rb), _ in roles.most_common(3)
+        ]
+    return out
 
 
 # --- draft highlights -----------------------------------------------------------
@@ -449,7 +471,7 @@ def game_highlights(ds: Dataset, g: dict, per_side: int = 4) -> list[dict]:
         for p in picks:
             opp = enemy_by_role[p["role"]]
             t = idx["lane"].get((p["role"], p["champion"]), {}).get(opp)
-            if t and t.games >= MIN_COUNTER_GAMES and (t.wr or 0) >= MIN_COUNTER_WR:
+            if t and t.games >= MIN_COUNTER_GAMES and (t.wr or 0) >= MIN_COUNTER_WR and matchup_verdict(t.wins, t.decided)["verdict"] == "favorable":
                 found.append(((t.wr or 0) + t.games / 30, {
                     "type": "counter", "side": side, "champions": [p["champion"], opp],
                     "text": f"{p['champion']} counter {opp}",
@@ -608,11 +630,13 @@ def records(ds: Dataset, f: Filters, limit: int = 8) -> list[dict]:
     counters = []
     for (role, ch), opp in idx["lane"].items():
         for oc, t in opp.items():
-            if t.decided >= 8:
+            if t.decided >= 8 and matchup_verdict(t.wins, t.decided)["verdict"] == "favorable":
                 counters.append((role, ch, oc, t))
-    section("counters", "Counters de lane", "Meilleurs winrates en face-à-face direct (8 parties minimum).", [
-        {"champions": [ch, oc], "label": f"{ch} vs {oc}", "value": f"{t.wins}-{t.games - t.wins}",
-         "sub": f"{role} · {pct(t.wr)} WR", "link": "counter"}
-        for role, ch, oc, t in sorted(counters, key=lambda x: (-(x[3].wr or 0), -x[3].games))
+    section("counters", "Counters de lane",
+            "Face-à-face direct en lane où le premier champion gagne nettement plus d'une fois sur deux (8 parties minimum, "
+            "l'écart ne s'explique pas par le hasard). Classés par borne basse de l'intervalle de confiance.", [
+        {"champions": [ch, oc], "label": f"{ch} bat {oc}", "value": f"{t.wins}-{t.games - t.wins}",
+         "sub": f"{ROLE_LABEL[role]} · {pct(t.wr)} WR en face-à-face", "link": "counter"}
+        for role, ch, oc, t in sorted(counters, key=lambda x: (-wilson(x[3].wins, x[3].decided)[0], -x[3].games))
     ])
     return sections

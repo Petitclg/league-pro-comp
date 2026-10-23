@@ -43,9 +43,10 @@ def test_champion_spots_finds_a_planted_edge():
     spots = champion_spots(mine)
     hot = {(s["dimension"], s["label"]) for s in spots["hot"]}
     cold = {(s["dimension"], s["label"]) for s in spots["cold"]}
-    assert ("Side", "Blue") in hot and ("Side", "Red") in cold
-    top = spots["hot"][0]
-    assert top["winrate"] > top["baseline"] and top["z"] >= 1.28 and top["games"] >= 8
+    assert [d for d, _ in hot | cold if d == "Side"] == ["Side"]  # Blue up and Red down is one finding
+    assert not [s for s in spots["hot"] + spots["cold"] if s["dimension"] in ("Face à", "Avec")]
+    top = min(spots["hot"] + spots["cold"], key=lambda s: -abs(s["z"]))
+    assert top["dimension"] == "Side" and abs(top["z"]) >= 1.28 and top["games"] >= 8
 
 
 def test_champion_spots_ignores_noise_and_small_samples():
@@ -67,3 +68,17 @@ def test_global_spots_and_api_fields():
     assert detail["strength"]["score"] >= 0 and set(detail["spots"]) == {"baseline", "hot", "cold"}
     ids = {s["id"] for s in stats.records(ds, Filters())}
     assert "strongest" in ids
+
+
+def test_matchup_verdict_needs_a_real_edge_and_never_flags_both_ways():
+    from app.strength import matchup_verdict
+
+    assert matchup_verdict(3, 3)["verdict"] is None  # 3-0 happens 1 time in 8 by chance
+    assert matchup_verdict(0, 3)["verdict"] is None
+    assert matchup_verdict(8, 10)["verdict"] == "favorable" and matchup_verdict(2, 10)["verdict"] == "difficult"
+    assert matchup_verdict(5, 10)["verdict"] is None
+    assert matchup_verdict(10, 10)["level"] == "strong"
+    for wins in range(0, 13):  # a record is favourable, difficult or inconclusive, and mirrored records mirror
+        a, b = matchup_verdict(wins, 12), matchup_verdict(12 - wins, 12)
+        assert a["z"] == -b["z"] and {a["verdict"], b["verdict"]} <= {None, "favorable", "difficult"}
+        assert a["verdict"] != b["verdict"] or a["verdict"] is None

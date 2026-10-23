@@ -234,7 +234,16 @@ export interface ChampionDetail {
     winrate: number | null
     lift: number
   }[]
-  matchups: { role: Role; champion: string; games: number; wins: number; winrate: number | null }[]
+  matchups: {
+    role: Role
+    champion: string
+    games: number
+    wins: number
+    winrate: number | null
+    z: number
+    level: MatchupLevel | null
+    verdict: 'favorable' | 'difficult' | null
+  }[]
 }
 
 export interface PairRow {
@@ -252,9 +261,25 @@ export interface PairRow {
   bans: { either: number; expected: number }
   /** games added to the presence: bans beyond chance */
   countered: number
-  /** played / (played + excess bans) */
+  /** played / (played + denied + unused) when the duo was open */
   realised_share: number | null
+  open: ComboOpen
 }
+
+/** A duo is open for a team when it picks one member while the other is still available (not banned, not taken, role free). */
+export interface ComboOpen {
+  open: number
+  realised: number
+  taken: number
+  banned: number
+  unused: number
+  wins: number
+  decided: number
+  rate: number | null
+  winrate: number | null
+}
+
+export type MatchupLevel = 'strong' | 'likely' | 'hint'
 
 export interface DuoDetail {
   kind: 'synergy' | 'counter'
@@ -264,6 +289,7 @@ export interface DuoDetail {
   wins: number
   winrate: number | null
   roles: { a_role: Role; b_role: Role; games: number }[]
+  open?: ({ a_role: Role; b_role: Role } & ComboOpen)[]
 }
 
 export interface DenialMeasure {
@@ -371,6 +397,8 @@ export interface Synergy {
   champion: string
   games: number
   winrate: number | null
+  /** how often the duo was played when it was open (see ComboOpen) */
+  open?: Pick<ComboOpen, 'open' | 'realised' | 'taken' | 'banned' | 'unused' | 'rate'>
 }
 
 export interface Suggestion {

@@ -224,21 +224,26 @@ def pairs(
     role_a: str | None = None,
     role_b: str | None = None,
     champion: str | None = None,
-    sort: str = Query("games", pattern="^(games|winrate|lift|presence)$"),
+    sort: str = Query("games", pattern="^(games|winrate|lift|presence|realised)$"),
     limit: int = Query(100, ge=1, le=500),
 ):
     _check_role(role_a)
     _check_role(role_b)
     comps = ds.filter_comps(f)
-    if sort == "presence":
-        # Presence needs a pass over the games: rank the most played pairs by it, not every pair.
+    if sort in ("presence", "realised"):
+        # These need a pass over the games: rank the most played pairs by them, not every pair.
         rows = stats.pair_stats(comps, min_games, role_a, role_b, champion, "games", 500, min_lift)
         stats.pair_presence(ds, f, rows)
-        rows.sort(key=lambda r: (-r["presence"], -r["games"]))
+        stats.pair_openness(ds, f, rows)
+        if sort == "presence":
+            rows.sort(key=lambda r: (-r["presence"], -r["games"]))
+        else:  # most systematically played when open; few open cases weigh little
+            rows.sort(key=lambda r: (-r["open"]["realised"] / (r["open"]["open"] + stats.COMBO_PRIOR), -r["games"]))
         rows = rows[:limit]
     else:
         rows = stats.pair_stats(comps, min_games, role_a, role_b, champion, sort, limit, min_lift)
         stats.pair_presence(ds, f, rows)
+        stats.pair_openness(ds, f, rows)
     return {"comps": len(comps), "pairs": rows}
 
 
@@ -287,7 +292,7 @@ def _suggest(req: "SuggestRequest", ds) -> dict:
                 patches=tuple(req.patches), fearless=req.fearless)
     comps = ds.filter_comps(f)
     subs = substitutes(comps, req.picks, live.champion_profiles()) if req.expand and req.picks else None
-    return run_suggest(comps, req.picks, set(req.unavailable), req.enemy, subs=subs)
+    return run_suggest(comps, req.picks, set(req.unavailable), req.enemy, subs=subs, combos=stats.combo_index(ds, f).stats)
 
 
 @app.post("/api/suggest")

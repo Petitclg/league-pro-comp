@@ -8,6 +8,7 @@ import random
 import time
 from bisect import bisect_left
 
+from .combos import ComboIndex
 from .dataset import Filters, get_dataset
 from .db import ROLES
 from .suggest import Params, suggest
@@ -17,6 +18,7 @@ MIN_HISTORY = 200  # comps played before a case, or it is skipped
 
 VARIANTS = {
     "current defaults": Params(),
+    "no duo bonus": Params(combo_strength=0, pair_wr_strength=0),
     "similarity m^1": Params(sim_power=1),
     "similarity m^3": Params(sim_power=3),
     "similarity m^4": Params(sim_power=4),
@@ -36,6 +38,17 @@ VARIANTS = {
     "cooc smoothing 5": Params(model="cooc", cooc_smoothing=5),
     "cooc smoothing 10": Params(model="cooc", cooc_smoothing=10),
     "cooc patch 0.5": Params(model="cooc", half_life_days=None, patch_decay=0.5),
+    "duo: open rate x0.5": Params(combo_strength=0.5),
+    "duo: open rate x1": Params(combo_strength=1),
+    "duo: open rate x2": Params(combo_strength=2),
+    "duo: winrate x1": Params(pair_wr_strength=1),
+    "duo: winrate x2": Params(pair_wr_strength=2),
+    "duo: open rate x1 + winrate x1": Params(combo_strength=1, pair_wr_strength=1),
+    "duo: open rate x2 + winrate x2": Params(combo_strength=2, pair_wr_strength=2),
+    "duo: open rate x1 + winrate x2": Params(combo_strength=1, pair_wr_strength=2),
+    "duo: open rate x2 + winrate x1": Params(combo_strength=2, pair_wr_strength=1),
+    "duo: open rate x0.5 + winrate x1": Params(combo_strength=0.5, pair_wr_strength=1),
+    "duo: open rate x4 + winrate x4": Params(combo_strength=4, pair_wr_strength=4),
 }
 
 
@@ -57,11 +70,12 @@ def build_cases(comps: list[dict], last: int, seed: int) -> tuple[list[dict], li
     return comps, cases
 
 
-def evaluate(comps: list[dict], cases: list[tuple], params: Params) -> dict:
+def evaluate(comps: list[dict], cases: list[tuple], params: Params, index: ComboIndex | None = None) -> dict:
     hits = dict.fromkeys(TOP, 0)
     reciprocal = 0.0
     for history, locked, enemy, role, answer in cases:
-        result = suggest(comps[:history], locked, enemy=enemy, top_n=max(TOP), params=params, details=False)
+        combos = (lambda a, b, n=history: index.stats(a, b, n)) if index else None  # the duo stats of earlier comps only
+        result = suggest(comps[:history], locked, enemy=enemy, top_n=max(TOP), params=params, details=False, combos=combos)
         names = [s["champion"] for s in result["suggestions"][role]]
         if answer in names:
             rank = names.index(answer) + 1
@@ -77,14 +91,19 @@ def main() -> None:
     parser.add_argument("--leagues", nargs="+", default=["LCK"])
     parser.add_argument("--last", type=int, default=400, help="number of most recent comps used as test cases")
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--only", nargs="+", metavar="TEXT", help="run the variants whose name contains one of these")
     args = parser.parse_args()
 
-    comps, cases = build_cases(get_dataset(tuple(args.leagues)).filter_comps(Filters()), args.last, args.seed)
+    ds = get_dataset(tuple(args.leagues))
+    comps, cases = build_cases(ds.filter_comps(Filters()), args.last, args.seed)
+    index = ComboIndex(ds.by_id, comps)
     print(f"{len(cases)} cases from {len(comps)} comps ({', '.join(args.leagues)})")
     print(f"{'variant':<30}" + "".join(f"{'top' + str(k):>8}" for k in TOP) + f"{'mrr':>8}")
     for name, params in VARIANTS.items():
+        if args.only and name != "current defaults" and not any(t in name for t in args.only):
+            continue
         started = time.time()
-        r = evaluate(comps, cases, params)
+        r = evaluate(comps, cases, params, index)
         print(f"{name:<30}" + "".join(f"{r[f'top{k}']:>8.1%}" for k in TOP) + f"{r['mrr']:>8.3f}  ({time.time() - started:.0f}s)")
 
 

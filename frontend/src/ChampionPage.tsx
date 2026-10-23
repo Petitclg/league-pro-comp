@@ -6,42 +6,58 @@ import { SeriesList } from './SeriesView'
 import { pct, rowLink, useAsync } from './utils'
 import { Card, Stat, TierBadge, WrBar } from './Widgets'
 
+const LEVEL_LABEL = { strong: 'très fiable', likely: 'fiable', hint: 'indice' } as const
+
 function Matchups({ detail }: { detail: ChampionDetail }) {
   const byRole = new Map<Role, ChampionDetail['matchups']>()
   for (const m of detail.matchups) byRole.set(m.role, [...(byRole.get(m.role) ?? []), m])
   const roles = [...byRole.keys()]
   if (!roles.length) return <p className="muted">Pas assez de face-à-face.</p>
+  const row = (m: ChampionDetail['matchups'][number]) => (
+    <li key={m.champion} className="clickable" onClick={(e) => !(e.target as HTMLElement).closest('a') && navigate('duo', 'counter', detail.champion, m.champion)}>
+      <Champ name={m.champion} size={26} showName />
+      <a className="duo-link" href={href('duo', 'counter', detail.champion, m.champion)}>
+        <WrBar wr={m.winrate} games={m.games} />
+        <small className="muted"> {m.wins}-{m.games - m.wins}</small>
+        {m.level && <small className="muted matchup-level">{LEVEL_LABEL[m.level]}</small>}
+      </a>
+    </li>
+  )
   return (
     <>
+      <p className="muted">
+        Winrate de {detail.champion} en lane face à chaque champion ; 50 % = équilibré. Un face-à-face n'est classé favorable ou difficile que
+        si l'écart ne s'explique pas par le hasard (5 parties minimum) : chaque adversaire n'apparaît donc que dans une seule liste.
+      </p>
       {roles.map((role) => {
-        const list = byRole.get(role)!
-        const solid = list.filter((m) => m.games >= 3)
-        const best = [...solid].sort((a, b) => (b.winrate ?? 0) - (a.winrate ?? 0) || b.games - a.games).slice(0, 5)
-        const worst = [...solid].sort((a, b) => (a.winrate ?? 1) - (b.winrate ?? 1) || b.games - a.games).slice(0, 5)
-        const row = (m: ChampionDetail['matchups'][number]) => (
-          <li key={m.champion} className="clickable" onClick={(e) => !(e.target as HTMLElement).closest('a') && navigate('duo', 'counter', detail.champion, m.champion)}>
-            <Champ name={m.champion} size={26} showName />
-            <a className="duo-link" href={href('duo', 'counter', detail.champion, m.champion)}>
-              <WrBar wr={m.winrate} games={m.games} />
-            </a>
-          </li>
-        )
+        const list = byRole.get(role)!.filter((m) => m.games >= 3)
+        const favorable = list.filter((m) => m.verdict === 'favorable').sort((a, b) => b.z - a.z || b.games - a.games).slice(0, 6)
+        const difficult = list.filter((m) => m.verdict === 'difficult').sort((a, b) => a.z - b.z || b.games - a.games).slice(0, 6)
+        const other = list.filter((m) => !m.verdict).sort((a, b) => b.games - a.games || a.champion.localeCompare(b.champion))
         return (
           <div key={role} className="matchup-role">
             <h4>En lane {ROLE_LABEL[role]}</h4>
-            {solid.length === 0 ? (
+            {list.length === 0 ? (
               <p className="muted">Moins de 3 parties par adversaire.</p>
             ) : (
-              <div className="two-col">
-                <div>
-                  <span className="good-text">Favorables</span>
-                  <ul className="plain">{best.map(row)}</ul>
+              <>
+                <div className="two-col">
+                  <div>
+                    <span className="good-text">Favorables</span>
+                    {favorable.length ? <ul className="plain">{favorable.map(row)}</ul> : <p className="muted">Aucun face-à-face concluant.</p>}
+                  </div>
+                  <div>
+                    <span className="bad-text">Difficiles</span>
+                    {difficult.length ? <ul className="plain">{difficult.map(row)}</ul> : <p className="muted">Aucun face-à-face concluant.</p>}
+                  </div>
                 </div>
-                <div>
-                  <span className="bad-text">Difficiles</span>
-                  <ul className="plain">{worst.map(row)}</ul>
-                </div>
-              </div>
+                {other.length > 0 && (
+                  <details className="matchup-other">
+                    <summary>Autres face-à-face, non concluants ({other.length})</summary>
+                    <ul className="plain">{other.slice(0, 12).map(row)}</ul>
+                  </details>
+                )}
+              </>
             )}
           </div>
         )
@@ -70,7 +86,7 @@ function SpotList({ spots, name, hot }: { spots: Spot[]; name: string; hot: bool
                 {pct(s.winrate)} <small>({s.delta > 0 ? '+' : ''}{Math.round(s.delta * 100)} pts)</small>
               </span>
               <small className="muted" title={`z = ${s.z} ; ${s.wins}/${s.games} victoires contre ${pct(s.baseline)} en moyenne`}>
-                {s.games} parties · {reliability}
+                {s.games} parties · {pct(s.baseline)} d'habitude · {reliability}
               </small>
             </span>
           </li>
@@ -121,8 +137,10 @@ export function ChampionPage({ name }: { name: string }) {
           ) : (
             <>
               <p className="muted">
-                Contextes où son winrate s'écarte de sa moyenne ({pct(d.spots.baseline)}). Plus l'échantillon est grand,
-                plus l'écart est fiable ; quelques faux positifs sont normaux vu le nombre de contextes testés.
+                Contextes (side, game de la série, moment de la draft, rôle, format, patch, équipe, joueur) où son winrate s'écarte de
+                <strong> sa propre moyenne</strong> ({pct(d.spots.baseline)}), pas de 50 % : « Sous-performe » veut dire moins bien que d'habitude,
+                pas forcément perdant. Les face-à-face et les partenaires ont leurs propres cartes. Plus l'échantillon est grand, plus l'écart
+                est fiable ; quelques faux positifs sont normaux vu le nombre de contextes testés.
               </p>
               <div className="two-col">
                 <div>

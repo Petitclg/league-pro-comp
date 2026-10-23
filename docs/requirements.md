@@ -42,6 +42,8 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 | REQ-STAT-4 | Paires (synergies) et matchups (counters) avec lift = fréquence réelle / attendue ; présence d'un duo corrigée des bans conjoints. | `stats.pair_stats`, `stats.pair_presence` |
 | REQ-STAT-5 | Contre de synergie : anticipation (partenaire déjà banni), réaction (deny pick ou ban après), ban de l'un des deux ; comparé à une référence au même patch, moment de draft et type de game ; trois niveaux de fiabilité. | `denial.py`, `test_denial.py` |
 | REQ-STAT-6 | Records : WR extrêmes, séries invaincues, dépendance au side, flex, signatures, one-tricks, perfs individuelles. | `stats.records` |
+| REQ-STAT-7 | **Paire jouée quand elle est ouverte** : une paire (A au poste ra, B au poste rb) est ouverte pour une équipe quand elle prend un des deux alors que l'autre est encore disponible (ni banni avant, ni pris par l'adversaire avant, ni verrouillé Fearless, poste non déjà occupé). Le taux de réalisation = parties où l'équipe a les deux / cas ouverts, avec le détail des autres issues (prise par l'adversaire ensuite, bannie ensuite, laissée de côté). Affiché dans le tableau des paires (colonne et tri), la page d'une paire et les suggestions. | `combos.py`, `test_combos.py` |
+| REQ-STAT-8 | **Matchups sans contradiction** : un face-à-face en lane est classé favorable ou difficile seulement si l'écart à 50 % ne s'explique pas par le hasard (z binomial et nombre de parties minimum par niveau : très fiable, fiable, indice) ; un adversaire n'apparaît que dans une liste. Les « spots » comparent un contexte à la moyenne du champion lui-même (pas à 50 %), n'incluent ni adversaires ni partenaires, et Blue/Red ne comptent que pour une trouvaille. | `strength.matchup_verdict`, `test_strength.py` |
 
 ### Interface (UI)
 
@@ -60,6 +62,7 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 | REQ-SUG-1 | Chaque comp pro partageant *m* picks avec la draft vote pour ses champions aux rôles restants (poids *m²*, victoire ×1,25, défaite ×0,75). | `suggest.py`, `test_app.py` |
 | REQ-SUG-2 | Les picks adverses connus ajustent chaque candidat par son winrate lissé contre eux (×0,5 à ×1,5). | `suggest.py` |
 | REQ-SUG-3 | Bans et champions Fearless déjà joués sont exclus. | `suggest.py` |
+| REQ-SUG-5 | **Bonus de paires** : un candidat est favorisé pour ses paires avec les champions déjà choisis (a) quand elles sont jouées systématiquement dès qu'elles sont ouvertes (REQ-STAT-7), d'autant plus qu'elles gagnent, et (b) quand elles ont un winrate élevé (lissé vers 50 %). Paramétré par `Params.combo_strength` et `Params.pair_wr_strength`, réglés par `python -m app.backtest`. Les suggestions exposent le taux de réalisation de chaque paire. | `suggest._pair_boost`, `test_combos.py` |
 | REQ-SUG-4 | Le tracker lit le champ select via l'API locale du client LoL toutes les 2,5 s ; hors client, l'API répond « non connecté » sans erreur. | `live.py` |
 
 ### Application de bureau et distribution (APP)

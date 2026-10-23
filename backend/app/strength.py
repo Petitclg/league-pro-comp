@@ -22,6 +22,21 @@ def shrunk_winrate(wins: int, decided: int) -> float:
     return (wins + PRIOR_GAMES / 2) / (decided + PRIOR_GAMES)
 
 
+# Reliability of a head-to-head record: (level, minimum |z| against 50 %, minimum games).
+# The games floor matters because the normal approximation is poor on tiny samples (3-0 is only 1 chance in 8).
+MATCHUP_LEVELS = ("strong", 2.33, 8), ("likely", 1.64, 6), ("hint", 1.28, 5)
+
+
+def matchup_verdict(wins: int, games: int) -> dict:
+    """Is a head-to-head record clearly favourable or difficult, or just inconclusive?
+
+    z is the binomial z-score of the winrate against 50 % (the two champions are in the same lane, so
+    an even matchup wins half of the time). `verdict` is None while the record could be luck."""
+    z = (2 * wins - games) / sqrt(games) if games else 0.0
+    level = next((key for key, z_min, n_min in MATCHUP_LEVELS if abs(z) >= z_min and games >= n_min), None)
+    return {"z": round(z, 2), "level": level, "verdict": None if level is None else "favorable" if z > 0 else "difficult"}
+
+
 def _tier(score: float) -> str:
     return "S" if score >= 70 else "A" if score >= 55 else "B" if score >= 40 else "C" if score >= 25 else "D"
 
@@ -68,10 +83,6 @@ def _spot_keys(c: dict, role: str, dims: tuple[str, ...] | None):
         keys.append(("Équipe", c["team"], None))
         if p["player"]:
             keys.append(("Joueur", p["player"], None))
-        opp = c["enemy"].get(role)
-        if opp:
-            keys.append(("Face à", opp, {"kind": "counter", "other": opp}))
-        keys += [("Avec", ch, {"kind": "synergy", "other": ch}) for r, ch in c["picks"].items() if r != role]
     return [k for k in keys if dims is None or k[0] in dims]
 
 
@@ -111,6 +122,9 @@ def champion_spots(mine: list[tuple[dict, str]], min_games: int = 8, z_min: floa
         if games < min_games or games == total:
             continue
         segments.append(_segment(dim, label, link, games, wins, baseline, _z(wins / games, baseline, games)))
+    sides = [s for s in segments if s["dimension"] == "Side"]
+    if len(sides) == 2:  # Blue above average means Red below it: one finding, not two
+        segments.remove(min(sides, key=lambda s: abs(s["z"])))
     hot = sorted((s for s in segments if s["z"] >= z_min), key=lambda s: -s["z"])[:limit]
     cold = sorted((s for s in segments if s["z"] <= -z_min), key=lambda s: s["z"])[:limit]
     return {"baseline": round(baseline, 4), "hot": hot, "cold": cold}

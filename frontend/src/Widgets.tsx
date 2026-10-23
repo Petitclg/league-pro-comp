@@ -1,6 +1,24 @@
 import type { ReactNode } from 'react'
-import type { PairRow, Strength } from './api'
+import type { ComboOpen, PairRow, Strength } from './api'
 import { pct } from './utils'
+
+/** What became of a duo each time it was open: played, taken by the opponent, banned, or left alone. */
+export function comboBreakdown(o: Pick<ComboOpen, 'open' | 'realised' | 'taken' | 'banned' | 'unused'>): string {
+  return (
+    `Ouverte ${o.open} fois (un des deux picks, l'autre encore disponible et son poste libre) :\n` +
+    `  jouée : ${o.realised}\n  prise par l'adversaire ensuite : ${o.taken}\n  bannie ensuite : ${o.banned}\n  laissée de côté : ${o.unused}`
+  )
+}
+
+/** How often a duo is played when it can be: 100 % means teams always take it when it is open. */
+export function ComboRate({ open }: { open: Pick<ComboOpen, 'open' | 'realised' | 'taken' | 'banned' | 'unused' | 'rate'> }) {
+  if (!open.open) return <span className="muted">–</span>
+  return (
+    <span title={comboBreakdown(open)}>
+      <strong>{pct(open.rate)}</strong> <small className="muted">{open.realised}/{open.open}</small>
+    </span>
+  )
+}
 
 export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (

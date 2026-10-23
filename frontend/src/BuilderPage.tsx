@@ -4,6 +4,7 @@ import { Champ } from './Champ'
 import { ChampionSelect } from './ChampionSelect'
 import { useScope } from './scope'
 import { pct, useAsync, useDebounced } from './utils'
+import { comboBreakdown } from './Widgets'
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -150,6 +151,7 @@ export function BuilderPage() {
       <p className="muted">
         Renseignez les champions déjà choisis : les suggestions se basent sur les comps pro qui leur ressemblent (pondérées par le
         nombre de picks communs, victoires favorisées) et, si des picks adverses sont connus, sur les winrates en face-à-face.
+        Les paires que les pros jouent systématiquement dès qu'elles sont ouvertes, et celles qui gagnent beaucoup, sont favorisées.
         Les filtres du haut (équipe, patch, Fearless…) restreignent les comps de référence.
       </p>
 
@@ -214,26 +216,40 @@ export function BuilderPage() {
             {ROLES.filter((r) => !locked[r]).map((role) => (
               <div key={role} className="sugg-col">
                 <h3>{ROLE_LABEL[role]}</h3>
-                {(data.suggestions[role] ?? []).map((s) => (
+                {(data.suggestions[role] ?? []).map((s) => {
+                  const duo = s.synergies
+                    .filter((y) => y.open && y.open.open >= 3 && (y.open.rate ?? 0) >= 0.5)
+                    .sort((a, b) => (b.open!.rate ?? 0) - (a.open!.rate ?? 0) || b.open!.open - a.open!.open)[0]
+                  return (
                   <button
                     key={s.champion}
                     className="sugg"
                     onClick={() => setPicks((p) => ({ ...p, [role]: s.champion }))}
                     title={s.synergies
-                      .map((y) => `${y.champion} (${ROLE_LABEL[y.role]}) : ${y.games} parties, ${pct(y.winrate)} WR`)
+                      .map(
+                        (y) =>
+                          `${y.champion} (${ROLE_LABEL[y.role]}) : ${y.games} parties, ${pct(y.winrate)} WR` +
+                          (y.open ? ` · jouée ${pct(y.open.rate)} quand elle est ouverte (${y.open.realised}/${y.open.open})` : ''),
+                      )
                       .join('\n')}
                   >
                     <Champ name={s.champion} size={36} showName link={false} />
                     <small>
                       {pct(s.share)} des comps · {s.games} parties · {pct(s.winrate)} WR
                     </small>
+                    {duo && (
+                      <small className="good-text" title={comboBreakdown(duo.open!)}>
+                        avec {duo.champion} : jouée {pct(duo.open!.rate)} si ouverte ({duo.open!.realised}/{duo.open!.open})
+                      </small>
+                    )}
                     {s.counter_winrate != null && (
                       <small className={s.counter_winrate >= 0.5 ? 'good-text' : 'bad-text'}>
                         vs adversaires : {pct(s.counter_winrate)} ({s.counter_games} parties)
                       </small>
                     )}
                   </button>
-                ))}
+                  )
+                })}
                 {(data.suggestions[role] ?? []).length === 0 && <p className="muted">Aucune donnée</p>}
               </div>
             ))}

@@ -1002,6 +1002,48 @@ ul.plain li {
 .repair-banner.error {
   border-color: var(--red);
 }
+.open-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--border);
+}
+.open-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--border);
+  max-width: 420px;
+}
+.open-bar > span {
+  height: 100%;
+}
+.open-realised {
+  background: var(--accent);
+}
+.open-taken {
+  background: var(--red);
+}
+.open-banned {
+  background: #8a5cc2;
+}
+.open-unused {
+  background: #5b6577;
+}
+.matchup-level {
+  font-size: 0.72rem;
+  margin-left: 6px;
+}
+.matchup-other {
+  margin-top: 6px;
+}
+.matchup-other summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
 .import-log {
   max-height: 160px;
   overflow: auto;

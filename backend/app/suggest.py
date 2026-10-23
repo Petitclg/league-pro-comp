@@ -3,11 +3,13 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
-from typing import Literal
+from typing import Callable, Literal
 
 from .db import ROLES
-from .stats import Tally
+from .stats import COMBO_PRIOR, Tally
 from .strength import shrunk_winrate
+
+ComboStats = Callable[[tuple[str, str], tuple[str, str]], dict]  # (role, champion) x 2 -> combos.ComboIndex.stats
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,8 @@ class Params:
     model: Literal["votes", "cooc"] = "votes"  # cooc: popularity x lift with each locked champion (naive Bayes)
     cooc_smoothing: float = 2.0  # pseudo-weight pulling a champion's rate with a locked one towards its overall rate
     cooc_power: float = 1.0  # each locked champion's lift is raised to x (< 1 tempers correlated evidence)
+    combo_strength: float = 1.0  # a duo with a locked champion that pros take whenever it is open: score *= 1 + x * rate * (0.5 + 2 * (winrate - 0.5))
+    pair_wr_strength: float = 0.5  # a duo with a locked champion that wins a lot: score *= 1 + x * (shrunk duo winrate - 0.5)
 
 
 DEFAULT = Params()
@@ -99,8 +103,11 @@ def substitutes(
     return out
 
 
-def _synergies(matches: list[dict], role: str, champ: str, locked_items: list[tuple[str, str]]) -> list[dict]:
-    """Winrate of `champ` together with each locked champion (`matches` already share a locked slot)."""
+def _synergies(
+    matches: list[dict], role: str, champ: str, locked_items: list[tuple[str, str]], combos: ComboStats | None = None,
+) -> list[dict]:
+    """Winrate of `champ` together with each locked champion (`matches` already share a locked slot),
+    and how often the pros played the duo when it was open (`combos`)."""
     out = []
     for lr, lc in locked_items:
         t = Tally()
@@ -108,10 +115,27 @@ def _synergies(matches: list[dict], role: str, champ: str, locked_items: list[tu
             picks = c["picks"]
             if picks.get(role) == champ and picks.get(lr) == lc:
                 t.add(c["win"])
-        if t.games:
-            out.append({"role": lr, "champion": lc, "games": t.games, "winrate": t.wr})
+        info = combos((lr, lc), (role, champ)) if combos else None
+        if t.games or (info and info["open"]):
+            entry = {"role": lr, "champion": lc, "games": t.games, "winrate": t.wr}
+            if info and info["open"]:
+                entry["open"] = {k: info[k] for k in ("open", "realised", "taken", "banned", "unused", "rate")}
+            out.append(entry)
     out.sort(key=lambda s: -s["games"])
     return out
+
+
+def _pair_boost(combos: ComboStats, locked_items: list[tuple[str, str]], role: str, champ: str, params: Params) -> float:
+    """Bonus of a candidate for the duos it forms with the locked champions (see `Params`)."""
+    boost = 0.0
+    for item in locked_items:
+        info = combos(item, (role, champ))
+        if not info["open"]:
+            continue
+        rate = info["realised"] / (info["open"] + COMBO_PRIOR)
+        edge = shrunk_winrate(info["wins"], info["decided"]) - 0.5
+        boost += params.pair_wr_strength * edge + params.combo_strength * rate * (0.5 + 2 * edge)
+    return max(-0.3, min(boost, 0.75))
 
 
 def _counter_scores(comps: list[dict], enemy: list[str]) -> dict[tuple[str, str], tuple[float, int]]:
@@ -145,6 +169,7 @@ def suggest(
     params: Params = DEFAULT,
     details: bool = True,
     subs: dict[str, dict[str, float]] | None = None,
+    combos: ComboStats | None = None,
 ) -> dict:
     """Every pro comp sharing m >= 1 (role, champion) slots with `locked` votes for the
     champions it played in the open roles, with weight m^2 (wins count a bit more than
@@ -154,7 +179,8 @@ def suggest(
     role times their lift with each locked champion instead. When enemy picks are known, each
     candidate is then scaled by its smoothed winrate against them (0.5x to 1.5x).
     `subs` (see `substitutes`) lets a comp playing a look-alike of an unplayed locked champion
-    count as a partial match.
+    count as a partial match. `combos` (see `combos.ComboIndex.stats`) feeds the duo bonuses of `Params`:
+    duos the pros play whenever they are open, and duos that win a lot, are favoured.
     """
     enemy = [e for e in (enemy or []) if e]
     unavailable = set(unavailable or ()) | set(locked.values()) | set(enemy)
@@ -209,6 +235,7 @@ def suggest(
                 support[(r, champ)].add(c["win"])
 
     counters = _counter_scores(comps, enemy)
+    pair_bonus = combos is not None and bool(params.combo_strength or params.pair_wr_strength)
     matched = [c for _, c in matches]
     suggestions: dict[str, list[dict]] = {}
     for r in open_roles:
@@ -222,6 +249,8 @@ def suggest(
             factor = 1 + params.wr_strength * (shrunk_winrate(tally.wins, tally.decided) - 0.5)
             if cwr is not None:
                 factor *= 1 + params.counter_strength * (cwr - 0.5)
+            if pair_bonus and locked_items:
+                factor *= 1 + _pair_boost(combos, locked_items, r, champ, params)
             base_score = share
             if cooc:
                 pop = popularity[(r, champ)] / all_weight
@@ -244,7 +273,7 @@ def suggest(
         suggestions[r] = ranked[:top_n]
         # Synergies are only worth computing for the candidates actually returned.
         for s in suggestions[r] if details else ():
-            s["synergies"] = _synergies(matched, r, s["champion"], locked_items)
+            s["synergies"] = _synergies(matched, r, s["champion"], locked_items, combos)
 
     coverage = {
         "matching_comps": 0 if fallback else len(matches),
