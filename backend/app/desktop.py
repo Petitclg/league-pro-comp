@@ -173,6 +173,23 @@ def update_at_startup() -> None:
         print(f"update not installed: {exc}", flush=True)
 
 
+def refresh_icon_cache() -> None:
+    """Windows keeps showing the old icon of an updated exe: ask the shell to reload icons, once per version."""
+    if not FROZEN or sys.platform != "win32":
+        return
+    marker = DATA_DIR / "icon_cache_version"
+    try:
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() == VERSION:
+            return
+        import ctypes
+
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, None, None)  # SHCNE_ASSOCCHANGED
+        subprocess.Popen(["ie4uinit.exe", "-show"], creationflags=subprocess.CREATE_NO_WINDOW)
+        marker.write_text(VERSION, encoding="utf-8")
+    except Exception as exc:  # cosmetic only
+        print(f"icon cache not refreshed: {exc}", flush=True)
+
+
 # --- server and window -------------------------------------------------------------------------
 
 def start_server(port: int):
@@ -221,6 +238,7 @@ def main() -> None:
         open_window(f"http://127.0.0.1:{PREFERRED_PORT}/")
         return
     update_at_startup()
+    refresh_icon_cache()
     port = pick_port()
     server = start_server(port)
     window = open_window(f"http://127.0.0.1:{port}/")
