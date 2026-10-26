@@ -22,7 +22,7 @@ try {
     Push-Location (Join-Path $root "backend")
     $python = if (Test-Path ".\.venv\Scripts\python.exe") { ".\.venv\Scripts\python.exe" } else { "python" }
     $ErrorActionPreference = "Continue"  # PyInstaller logs to stderr; its exit code is what counts
-    & $python -m PyInstaller --noconfirm --clean --onefile --noconsole --name LoLProComp `
+    & $python -m PyInstaller --noconfirm --clean --onefile --noconsole --name LoLProComp --icon "$root\backend\assets\icon.ico" `
         --add-data "$root\frontend\dist;static" `
         --exclude-module pytest --exclude-module matplotlib --exclude-module numpy `
         --distpath $OutDir --workpath "$work\build" --specpath "$work\spec" launcher.py
