@@ -4,10 +4,16 @@ Analyse des drafts du LoL pro (LCK, LPL, LEC, LCS, LTA, LCP, PCS, VCS, CBLOL, LL
 
 ## Installer l'application (Windows)
 
-1. Télécharger `LoLProComp.exe` depuis la page **Releases** du dépôt et le placer où l'on veut (un seul fichier, rien à installer : ni Python ni Node).
-2. Le lancer : une fenêtre s'ouvre (Microsoft Edge en mode application, présent sur Windows 10/11 ; Chrome sinon). Au premier lancement, la page **Données** propose d'importer la LCK (≈ 1 min) ou toutes les ligues (≈ 10 à 20 min) depuis Leaguepedia. Le bouton « Mettre à jour (année en cours) » rafraîchit ensuite les données quand on veut.
-3. **Mise à jour automatique, comme Discord** : à chaque démarrage, l'application cherche une release plus récente sur GitHub ; si elle existe, une petite fenêtre télécharge la nouvelle version (taille et SHA-256 vérifiés), remplace l'exécutable et relance l'application. Hors ligne ou en cas de problème, la version actuelle démarre normalement. `LOLPRO_NO_UPDATE=1` désactive la recherche.
-4. Fermer la fenêtre arrête l'application. Les données sont dans `%LOCALAPPDATA%\LoLProComp` (base `lck.db`, journal `app.log`) : elles survivent aux mises à jour. Un second lancement ouvre simplement une fenêtre sur l'instance déjà démarrée.
+Deux distributions, même application, publiées dans chaque release (page **Releases** du dépôt) avec leur empreinte SHA-256 :
+
+- **Installateur** `LoLProComp-Setup.exe` (recommandé) : installation classique pour l'utilisateur courant, **sans droits administrateur**, dans `%LOCALAPPDATA%\Programs\LoLProComp`. Il crée un raccourci dans le menu Démarrer (et sur le bureau si on coche la case), et une entrée dans « Applications installées » pour la désinstaller. Si l'application tourne, l'installateur la ferme avant de remplacer l'exécutable. À la désinstallation, il demande s'il faut aussi supprimer les données (`%LOCALAPPDATA%\LoLProComp`) ; par défaut elles sont gardées (et toujours gardées en désinstallation silencieuse).
+- **Portable** `LoLProComp.exe` : un seul fichier à placer où l'on veut (dans un dossier où l'on peut écrire, pour la mise à jour automatique), rien à installer.
+
+Ni Python ni Node ne sont nécessaires.
+
+1. Lancer l'application (menu Démarrer, ou `LoLProComp.exe`) : une fenêtre s'ouvre (Microsoft Edge en mode application, présent sur Windows 10/11 ; Chrome sinon). Au premier lancement, la page **Données** propose d'importer la LCK (≈ 1 min) ou toutes les ligues (≈ 10 à 20 min) depuis Leaguepedia. Le bouton « Mettre à jour (année en cours) » rafraîchit ensuite les données quand on veut.
+2. **Mise à jour automatique, comme Discord** : à chaque démarrage, l'application cherche une release plus récente sur GitHub ; si elle existe, une petite fenêtre télécharge la nouvelle version de `LoLProComp.exe` (taille et SHA-256 vérifiés), remplace l'exécutable et relance l'application. C'est identique en version installée ou portable : l'installateur n'est utilisé que pour la première installation (le dossier d'installation appartient à l'utilisateur, l'application peut donc s'y remplacer elle-même). Hors ligne ou en cas de problème, la version actuelle démarre normalement. `LOLPRO_NO_UPDATE=1` désactive la recherche.
+3. Fermer la fenêtre arrête l'application. Les données sont dans `%LOCALAPPDATA%\LoLProComp` (base `lck.db`, journal `app.log`) : elles survivent aux mises à jour, et sont partagées entre version installée et portable. Un second lancement ouvre simplement une fenêtre sur l'instance déjà démarrée.
 
 Le tracker fonctionne tel quel : l'application tourne sur la même machine que le client LoL.
 
@@ -18,7 +24,19 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-Le workflow [release.yml](.github/workflows/release.yml) lance les tests, compile `LoLProComp.exe` (`build.ps1`, PyInstaller) et le publie dans la release avec son empreinte SHA-256. C'est ce fichier que les applications installées téléchargent. Pour compiler en local : `.\build.ps1` (résultat dans `backend\dist`) ; `-Version 1.2.0` fixe le numéro de version sans modifier le dépôt.
+Le workflow [release.yml](.github/workflows/release.yml) lance les tests, compile `LoLProComp.exe` (`build.ps1`, PyInstaller) puis l'installateur `LoLProComp-Setup.exe` (Inno Setup 6, script [installer/LoLProComp.iss](installer/LoLProComp.iss)) et les publie dans la release, chacun avec son empreinte SHA-256. C'est `LoLProComp.exe` que les applications installées téléchargent pour se mettre à jour. Pour compiler en local : `.\build.ps1` (résultat dans `backend\dist`) ; `-Version 1.2.0` fixe le numéro de version sans modifier le dépôt ; `-Installer` produit aussi `LoLProComp-Setup.exe` (nécessite [Inno Setup 6](https://jrsoftware.org/isdl.php) : `ISCC.exe` est cherché dans le `PATH` et les dossiers d'installation habituels).
+
+### Tester l'installateur (manuel, avant une release)
+
+L'installateur est compilé par la CI ; son comportement se vérifie à la main sur un Windows sans droits administrateur :
+
+1. **Installation** : lancer `LoLProComp-Setup.exe` → aucune demande d'élévation (UAC) ; dossier proposé `%LOCALAPPDATA%\Programs\LoLProComp` ; case « raccourci sur le bureau » décochée par défaut. Vérifier le raccourci du menu Démarrer (avec l'icône), le raccourci bureau s'il a été coché et l'entrée « LoL Pro Comp » avec sa version dans Paramètres → Applications installées.
+2. **Lancement** : la case « Exécuter LoL Pro Comp » de la dernière page ouvre la fenêtre ; relancer depuis le menu Démarrer ouvre une fenêtre sur la même instance.
+3. **Réinstallation, application ouverte** : relancer l'installateur pendant que l'application tourne → elle se ferme d'elle-même (fenêtre comprise) avant la copie, sans message « fichier utilisé » ; les données (`%LOCALAPPDATA%\LoLProComp`) sont intactes. Pendant un import, l'application refuse de se fermer : la page « Préparation de l'installation » propose alors de la fermer de force.
+4. **Mise à jour automatique** : installer une version N-1 (ou un build local `-Version 0.0.1`), la lancer alors qu'une release N existe → fenêtre de téléchargement, redémarrage en version N, `LoLProComp.exe` remplacé dans `%LOCALAPPDATA%\Programs\LoLProComp`, pas de fichier `.old` restant au lancement suivant. (L'entrée « Applications installées » garde le numéro de la version installée par le setup : c'est attendu.)
+5. **Désinstallation en gardant les données** : depuis Applications installées, répondre **Non** à la question des données → dossier d'installation, raccourcis et entrée supprimés ; `%LOCALAPPDATA%\LoLProComp` conservé ; une réinstallation retrouve les parties importées.
+6. **Désinstallation en supprimant les données** : répondre **Oui** → `%LOCALAPPDATA%\LoLProComp` supprimé aussi. Faire le test application ouverte : elle est fermée avant la suppression (confirmation demandée si elle refuse, par exemple pendant un import).
+7. **Silencieux** : `LoLProComp-Setup.exe /VERYSILENT` installe sans fenêtre ; `unins000.exe /VERYSILENT` (dans le dossier d'installation) désinstalle en gardant les données.
 
 ## Développement
 

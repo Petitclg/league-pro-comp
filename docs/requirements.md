@@ -75,6 +75,7 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 | REQ-APP-3 | Fermer la fenêtre arrête l'application ; un second lancement réutilise l'instance en cours. | `desktop.py`, `test_desktop.py` |
 | REQ-APP-4 | Les données sont dans `%LOCALAPPDATA%\LoLProComp` et survivent aux mises à jour. | `config.py` |
 | REQ-APP-5 | L'import est lancé depuis la page Données, avec progression et annulation ; le serveur reste utilisable pendant l'import. | `importer.py` |
+| REQ-APP-6 | Un installateur `LoLProComp-Setup.exe` installe le même exécutable pour l'utilisateur courant, sans droits administrateur, dans `%LOCALAPPDATA%\Programs\LoLProComp` (raccourci menu Démarrer, raccourci bureau optionnel, désinstallateur). Il ferme l'application en cours avant de remplacer l'exécutable ; la désinstallation demande s'il faut supprimer les données (gardées par défaut). La mise à jour automatique reste celle de REQ-APP-2. | `installer/LoLProComp.iss`, tests manuels du README |
 
 ## Exigences non fonctionnelles
 
@@ -84,7 +85,7 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 | REQ-NFR-2 | Les analyses lourdes du périmètre par défaut sont préchauffées au démarrage. |
 | REQ-NFR-3 | Le serveur n'écoute qu'en local ; `/api/quit` exige un en-tête personnalisé (protection CORS). |
 | REQ-NFR-4 | Les données importées conservent la licence CC BY-SA 3.0 de Leaguepedia ; images via Data Dragon. |
-| REQ-NFR-5 | Tests backend (pytest) et frontend (vitest) verts avant toute release ; la CI publie l'exécutable avec son SHA-256. |
+| REQ-NFR-5 | Tests backend (pytest) et frontend (vitest) verts avant toute release ; la CI publie l'exécutable et l'installateur avec leur SHA-256. |
 
 ## Critères d'acceptation transverses
 

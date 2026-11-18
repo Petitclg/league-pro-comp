@@ -1,7 +1,8 @@
 name: Release
 
-# Pushing a tag such as v0.2.0 tests the app, builds LoLProComp.exe and publishes it as a GitHub release.
-# Installed applications look for the latest release at startup and update themselves from it.
+# Pushing a tag such as v0.2.0 tests the app, builds LoLProComp.exe and its installer LoLProComp-Setup.exe and
+# publishes them as a GitHub release. Installed applications look for the latest release at startup and update
+# themselves from LoLProComp.exe (portable or installed alike).
 on:
   push:
     tags: ["v*"]
@@ -42,13 +43,19 @@ jobs:
         shell: pwsh
         run: npm test --prefix frontend
 
-      - name: Build LoLProComp.exe
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build LoLProComp.exe and LoLProComp-Setup.exe
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
-          ./build.ps1 -Version $version -OutDir "$PWD/release"
-          $hash = (Get-FileHash release/LoLProComp.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  LoLProComp.exe" | Out-File -Encoding ascii release/LoLProComp.exe.sha256
+          ./build.ps1 -Version $version -OutDir "$PWD/release" -Installer
+          foreach ($name in "LoLProComp.exe", "LoLProComp-Setup.exe") {
+            $hash = (Get-FileHash "release/$name" -Algorithm SHA256).Hash.ToLower()
+            "$hash  $name" | Out-File -Encoding ascii "release/$name.sha256"
+          }
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -56,4 +63,6 @@ jobs:
           files: |
             release/LoLProComp.exe
             release/LoLProComp.exe.sha256
+            release/LoLProComp-Setup.exe
+            release/LoLProComp-Setup.exe.sha256
           generate_release_notes: true
