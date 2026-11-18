@@ -571,6 +571,76 @@ export class ApiError extends Error {
   }
 }
 
+/** Win probability model (REQ-WPA): probabilities and ΔW are fractions; W is always Blue's. */
+export interface WpaStatus {
+  available: boolean
+  message: string | null // why there is no usable model, with the training command
+  status: 'validated' | 'provisional' | null
+  status_reason: string | null
+  model: {
+    id: string
+    source: 'soloq' | 'synthetic'
+    trained_at: string | null
+    games: number | null
+    samples: number | null
+    feature_version: number
+    features: string[]
+    minute_coverage: number | null
+    params: Record<string, number>
+    metrics: {
+      n?: number
+      accuracy?: number
+      log_loss?: number
+      brier?: number
+      ece?: number
+      baseline_log_loss?: number
+      reliability?: { lo: number; hi: number; n: number; predicted: number; observed: number }[]
+    }
+  } | null
+  cache: { computed: number; total: number; running: boolean } | null
+  warnings: { key: string; text: string }[]
+}
+
+export interface WpaEvent {
+  t: number // seconds
+  kind: string // kill, tower, inhibitor, plate, dragon, herald, grub, baron, atakhan
+  side: 1 | 2 // the team that acts
+  detail: string | null
+  champion: string | null
+  victim: string | null
+  w: number // Blue's W after the event
+  dw: number // ΔW for `side`
+}
+
+export interface WpaCurve {
+  minutes: number[]
+  events: WpaEvent[]
+  winner: number | null
+  duration: number | null // minutes
+  tier: string | null
+  patch: string | null
+}
+
+export interface WpaCoverage {
+  computed: number
+  total: number
+}
+
+export interface WpaEvents {
+  coverage: WpaCoverage
+  kills: { n: number; dw: number | null }
+  objectives: { kind: string; n: number; dw: number | null }[]
+}
+
+export interface WpaPlayerRow {
+  champion?: string
+  player?: string
+  games: number
+  wpa: number
+  kills_wpa: number
+  deaths_wpa: number
+}
+
 function qs(params: object): string {
   const sp = new URLSearchParams()
   for (const [k, v] of Object.entries(params as Record<string, unknown>)) {
@@ -656,6 +726,11 @@ export const api = {
   denial: (f: Filters, a: string, b: string) => request<DenialResult>(`/api/denial${qs({ ...f, a, b })}`),
   countered: (f: Filters) => request<CounteredRanking>(`/api/countered-synergies${qs({ ...f, limit: 20 })}`),
   live: () => request<LiveState>('/api/live'),
+  wpa: () => request<WpaStatus>('/api/wpa'),
+  wpaGame: (id: string) => requestDetail<WpaCurve>(`/api/wpa/game/${encodeURIComponent(id)}`),
+  wpaEvents: (f: Filters) => requestDetail<WpaEvents>(`/api/wpa/events${qs(f)}`),
+  wpaChampions: (f: Filters, p: { by: 'champion' | 'player'; role?: string; min_games: number }) =>
+    requestDetail<{ coverage: WpaCoverage; rows: WpaPlayerRow[] }>(`/api/wpa/champions${qs({ ...f, ...p, limit: 500 })}`),
   suggest: (body: SuggestBody) =>
     request<SuggestResult>(`/api/suggest${qs({ league: body.league })}`, {
       method: 'POST',

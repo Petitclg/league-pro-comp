@@ -13,9 +13,10 @@ import { PairsPage } from './PairsPage'
 import { RecordsPage } from './RecordsPage'
 import { RepairBanner } from './RepairBanner'
 import { href, useRoute } from './router'
-import { ScopeContext } from './scope'
+import { ScopeContext, tabVisible } from './scope'
 import { SeriesList } from './SeriesView'
 import { useAsync } from './utils'
+import { WinProbPage } from './WinProbPage'
 
 const TABS = [
   { id: 'drafts', label: 'Drafts' },
@@ -24,6 +25,7 @@ const TABS = [
   { id: 'countered', label: 'Synergies contrées' },
   { id: 'items', label: 'Objets' },
   { id: 'records', label: 'Records' },
+  { id: 'winprob', label: 'Probabilité de victoire' },
   { id: 'builder', label: 'Suggestions / Tracker' },
   { id: 'data', label: 'Données' },
 ]
@@ -67,6 +69,12 @@ function Page({ parts, meta }: { parts: string[]; meta: Meta }) {
       return <ItemsPage />
     case 'records':
       return <RecordsPage />
+    case 'winprob':
+      return meta.soloq ? (
+        <WinProbPage key={a ?? ''} gameId={a} />
+      ) : (
+        <p className="muted">La probabilité de victoire n'existe qu'en solo queue : choisissez le périmètre « Solo queue ».</p>
+      )
     case 'builder':
       return <BuilderPage />
     case 'data':
@@ -87,7 +95,7 @@ function Shell({ meta, filters, setFilters }: { meta: Meta; filters: Filters; se
           LoL Pro Comp <small className="version">v{meta.version}</small>
         </h1>
         <nav>
-          {TABS.filter((t) => (meta.soloq ? t.id !== 'countered' : t.id !== 'items')).map((t) => (
+          {TABS.filter((t) => tabVisible(t.id, meta.soloq)).map((t) => (
             <a key={t.id} href={href(t.id)} className={current === t.id || (t.id === 'drafts' && current === 'game') ? 'active' : ''}>
               {t.label}
             </a>

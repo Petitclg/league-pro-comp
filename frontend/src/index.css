@@ -1391,3 +1391,139 @@ a.rec-item:hover {
 .item-name span {
   min-width: 110px;
 }
+/* ---------- win probability ---------- */
+.wp-warnings {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+}
+.wp-warnings p {
+  margin: 4px 0;
+}
+.wp-command {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+.wp-model {
+  margin-bottom: 12px;
+}
+.wp-model-body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.badge.wp-provisional {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.wp-reliability {
+  margin: 0;
+  text-align: center;
+}
+.wp-reliability figcaption {
+  font-size: 0.72rem;
+}
+.wp-frame {
+  fill: none;
+  stroke: var(--border);
+}
+.wp-diagonal {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+}
+.wp-bin {
+  fill: var(--accent);
+  opacity: 0.85;
+}
+.wp-game {
+  margin-bottom: 12px;
+}
+.wp-blue {
+  color: var(--blue);
+}
+.wp-red {
+  color: var(--red);
+}
+.wp-chart {
+  position: relative;
+}
+.wp-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.wp-grid {
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+.wp-mid {
+  stroke: var(--muted);
+  stroke-dasharray: 4 3;
+}
+.wp-axis {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.wp-uncovered {
+  fill: var(--muted);
+  opacity: 0.12;
+}
+.wp-area-blue {
+  fill: var(--blue);
+  opacity: 0.18;
+}
+.wp-area-red {
+  fill: var(--red);
+  opacity: 0.18;
+}
+.wp-line {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+.wp-marker {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+.wp-marker.blue {
+  fill: var(--blue);
+}
+.wp-marker.red {
+  fill: var(--red);
+}
+circle.wp-marker {
+  stroke: transparent;
+  stroke-width: 8;
+}
+.wp-marker.selected {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.wp-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.wp-table-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+tr.wp-selected td {
+  background: rgba(200, 162, 74, 0.15);
+}
