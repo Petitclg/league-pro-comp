@@ -54,7 +54,13 @@ function Page({ parts, meta }: { parts: string[]; meta: Meta }) {
     case 'pairs':
       return <PairsPage />
     case 'countered':
-      return <CounteredPage />
+      return meta.soloq ? (
+        <p className="muted">
+          Les synergies contrées reposent sur l'ordre de la draft, que l'API Riot ne donne pas pour la solo queue : choisissez une ligue pro.
+        </p>
+      ) : (
+        <CounteredPage />
+      )
     case 'records':
       return <RecordsPage />
     case 'builder':
@@ -77,14 +83,15 @@ function Shell({ meta, filters, setFilters }: { meta: Meta; filters: Filters; se
           LoL Pro Comp <small className="version">v{meta.version}</small>
         </h1>
         <nav>
-          {TABS.map((t) => (
+          {TABS.filter((t) => !(meta.soloq && t.id === 'countered')).map((t) => (
             <a key={t.id} href={href(t.id)} className={current === t.id || (t.id === 'drafts' && current === 'game') ? 'active' : ''}>
               {t.label}
             </a>
           ))}
         </nav>
         <span className="muted">
-          {meta.selected.map((k) => meta.leagues.find((l) => l.key === k)?.name ?? k).join(' + ')} · {meta.games} parties · {meta.series} séries
+          {meta.selected.map((k) => meta.leagues.find((l) => l.key === k)?.name ?? k).join(' + ')} · {meta.games} parties
+          {!meta.soloq && ` · ${meta.series} séries`}
         </span>
       </header>
       <FilterBar />
@@ -100,6 +107,7 @@ function pruneFilters(f: Filters, meta: Meta): Filters {
     tournament: new Set(meta.tournaments.map((t) => t.name)),
     year: new Set(meta.years),
     patch: new Set(meta.patches),
+    rank: new Set(meta.ranks),
   }
   let changed = false
   const next: Filters = { ...f }

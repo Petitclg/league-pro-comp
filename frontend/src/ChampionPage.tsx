@@ -97,7 +97,9 @@ function SpotList({ spots, name, hot }: { spots: Spot[]; name: string; hot: bool
 }
 
 export function ChampionPage({ name }: { name: string }) {
-  const { filters } = useScope()
+  const { filters, meta } = useScope()
+  // Solo queue: no draft order, series or teams (the "teams" are just Blue and Red)
+  const soloq = meta.soloq
   const { data: d, loading, error } = useAsync(() => api.champion(name, filters), [name, filters])
 
   if (error) return <p className="error">Aucune donnée pour {name} avec ces filtres. ({error})</p>
@@ -169,13 +171,15 @@ export function ChampionPage({ name }: { name: string }) {
           </div>
         </Card>
 
-        <Card title="Dans la draft">
-          <div className="stat-row small">
-            <Stat label="Pick moyen" value={d.avg_pick_slot ? `n°${d.avg_pick_slot}` : '–'} hint="Position moyenne sur les 10 picks (1 = first pick)" />
-            <Stat label="Picks en 1ʳᵉ rotation" value={pct(d.first_rotation_rate)} hint="Part des picks parmi les 3 premiers de la draft" />
-            <Stat label="Bans en phase 1" value={pct(d.ban_phase1_rate)} hint="Part des bans parmi les 6 premiers" />
-            <Stat label="Ordre de ban moy." value={d.avg_ban_order ? `n°${d.avg_ban_order}` : '–'} />
-          </div>
+        <Card title={soloq ? 'Côté de la carte' : 'Dans la draft'}>
+          {!soloq && (
+            <div className="stat-row small">
+              <Stat label="Pick moyen" value={d.avg_pick_slot ? `n°${d.avg_pick_slot}` : '–'} hint="Position moyenne sur les 10 picks (1 = first pick)" />
+              <Stat label="Picks en 1ʳᵉ rotation" value={pct(d.first_rotation_rate)} hint="Part des picks parmi les 3 premiers de la draft" />
+              <Stat label="Bans en phase 1" value={pct(d.ban_phase1_rate)} hint="Part des bans parmi les 6 premiers" />
+              <Stat label="Ordre de ban moy." value={d.avg_ban_order ? `n°${d.avg_ban_order}` : '–'} />
+            </div>
+          )}
           <div className="two-col">
             <div>
               <h4>Selon le side</h4>
@@ -186,15 +190,17 @@ export function ChampionPage({ name }: { name: string }) {
                 </div>
               ))}
             </div>
-            <div>
-              <h4>Selon la game de la série</h4>
-              {d.by_game_number.map((g) => (
-                <div key={g.game_number} className="line">
-                  <span>Game {g.game_number}</span>
-                  <WrBar wr={g.winrate} games={g.games} />
-                </div>
-              ))}
-            </div>
+            {!soloq && (
+              <div>
+                <h4>Selon la game de la série</h4>
+                {d.by_game_number.map((g) => (
+                  <div key={g.game_number} className="line">
+                    <span>Game {g.game_number}</span>
+                    <WrBar wr={g.winrate} games={g.games} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
 
@@ -261,7 +267,7 @@ export function ChampionPage({ name }: { name: string }) {
           </table>
         </Card>
 
-        <Card title="Joueurs et équipes">
+        <Card title={soloq ? 'Joueurs' : 'Joueurs et équipes'}>
           <h4>Joueurs</h4>
           <ul className="plain">
             {d.players.slice(0, 6).map((p) => (
@@ -272,7 +278,7 @@ export function ChampionPage({ name }: { name: string }) {
               </li>
             ))}
           </ul>
-          {d.banned_by.length > 0 && (
+          {!soloq && d.banned_by.length > 0 && (
             <>
               <h4>Souvent banni par</h4>
               <p>{d.banned_by.map((b) => `${b.team} (${b.bans})`).join(' · ')}</p>

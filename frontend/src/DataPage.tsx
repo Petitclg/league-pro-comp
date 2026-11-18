@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type ImportStatus, type Meta } from './api'
+import { SoloqData } from './SoloqData'
 
 const FIRST_YEAR = 2017
 
@@ -120,6 +121,8 @@ export function DataPage({ meta }: { meta: Meta }) {
           pendant ce temps.
         </p>
       </div>
+
+      <SoloqData />
 
       {hasData && (
         <div className="card wide">
