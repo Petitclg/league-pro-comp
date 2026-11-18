@@ -71,7 +71,8 @@ flowchart TD
 
 - Développement : `uvicorn` (port 8000) + Vite (5173).
 - Production : PyInstaller (`build.ps1`) embarque le front compilé ; le port préféré est 8765.
-- Release : un tag `vX.Y.Z` déclenche le workflow GitHub Actions (tests, build, publication avec SHA-256).
+- Distribution : le même `LoLProComp.exe` est publié seul (portable) et dans `LoLProComp-Setup.exe` (`build.ps1 -Installer`, Inno Setup 6, script `installer/LoLProComp.iss`). L'installateur est par utilisateur (`PrivilegesRequired=lowest`, dossier `%LOCALAPPDATA%\Programs\LoLProComp`) : l'application peut donc remplacer son exécutable elle-même et la mise à jour automatique fonctionne à l'identique dans les deux modes. Pour fermer une instance en cours, il appelle `/api/quit` comme le ferait un lancement plus récent, puis laisse le Restart Manager de Windows fermer ce qui reste (l'application n'a pas de mutex nommé : l'instance unique passe par le port 8765).
+- Release : un tag `vX.Y.Z` déclenche le workflow GitHub Actions (tests, build de l'exécutable et de l'installateur, publication avec SHA-256).
 
 ## Décisions
 
