@@ -21,7 +21,9 @@ export interface LeagueInfo {
 
 export interface Meta {
   selected: string[] // leagues analysed together
-  leagues: LeagueInfo[] // every league in the database
+  leagues: LeagueInfo[] // every league in the database (and the solo queue scope when it has games)
+  soloq: boolean // the scope is the solo queue (Riot API games): no teams, series, Fearless or draft order
+  ranks: string[] // solo queue rank tiers present in the scope
   roles: Role[]
   games: number
   series: number
@@ -50,6 +52,52 @@ export interface ImportStatus {
 
 export const DEFAULT_LEAGUE = 'LCK'
 
+export interface SoloqSettings {
+  platforms: string[]
+  tiers: string[]
+  target: number
+  min_patch: string
+  patches_kept: number
+  max_age_days: number
+}
+
+export interface SoloqKey {
+  state: 'missing' | 'unchecked' | 'valid' | 'invalid'
+  masked: string | null
+  checked_at: number | null
+}
+
+export interface SoloqImportStatus {
+  state: 'idle' | 'running' | 'done' | 'exhausted' | 'error' | 'cancelled'
+  resumed?: boolean
+  target?: number
+  games?: number | null
+  added?: number
+  current?: string | null
+  waiting?: { seconds: number; reason: string; until: number } | null
+  log?: string[]
+  error?: string | null
+  key_rejected?: boolean
+}
+
+export interface SoloqOverview {
+  key: SoloqKey
+  settings: SoloqSettings
+  import: SoloqImportStatus
+  stored: {
+    games: number
+    first: string | null
+    last: string | null
+    by_tier: Record<string, number>
+    by_platform: Record<string, number>
+    patches: string[]
+    queued: number
+    seeds: number
+  }
+  platforms: { key: string; label: string; region: string }[]
+  tiers: string[]
+}
+
 /** Global scope applied to every statistic. List filters keep a game matching ANY selected value. */
 export interface Filters {
   league?: string[]
@@ -59,9 +107,10 @@ export interface Filters {
   patch?: string[]
   fearless?: string // 'true' | 'false'
   game_number?: string[]
+  rank?: string[] // solo queue only
 }
 
-export type ListFilter = 'league' | 'team' | 'tournament' | 'year' | 'patch' | 'game_number'
+export type ListFilter = 'league' | 'team' | 'tournament' | 'year' | 'patch' | 'game_number' | 'rank'
 
 /** Filters read from older sessions held single strings: turn them into lists. */
 export function normalizeFilters(raw: unknown): Filters {
@@ -69,7 +118,7 @@ export function normalizeFilters(raw: unknown): Filters {
   if (!raw || typeof raw !== 'object') return out
   const r = raw as Record<string, unknown>
   if (typeof r.fearless === 'string') out.fearless = r.fearless
-  for (const k of ['league', 'team', 'tournament', 'year', 'patch', 'game_number'] as ListFilter[]) {
+  for (const k of ['league', 'team', 'tournament', 'year', 'patch', 'game_number', 'rank'] as ListFilter[]) {
     const v = r[k]
     const list = Array.isArray(v) ? v.map(String) : typeof v === 'string' && v ? [v] : []
     if (list.length) out[k] = list
@@ -118,6 +167,7 @@ export interface GameData {
   fearless: boolean
   locked: string[]
   winner: number | null
+  rank: string | null // solo queue rank tier
   matched: boolean
   sides: Record<'1' | '2', SideDraft>
   highlights: Highlight[]
@@ -126,11 +176,12 @@ export interface GameData {
 export interface SeriesData {
   match_id: string
   league: string
-  tournament: string
+  tournament: string | null
   stage: string | null
   date: string | null
   best_of: number | null
   fearless: boolean
+  rank: string | null // solo queue rank tier
   teams: [string, string]
   score: [number, number]
   games: GameData[]
@@ -475,9 +526,34 @@ const suggestPayload = (body: SuggestBody) => ({
   years: body.year ?? [],
   patches: body.patch ?? [],
   fearless: body.fearless === undefined ? undefined : body.fearless === 'true',
+  ranks: body.rank ?? [],
 })
 
+const json = (method: string, body?: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: body === undefined ? undefined : JSON.stringify(body),
+})
+
+/** Error with the server's `detail` message (FastAPI), so the page can show why a request failed. */
+async function requestDetail<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const detail = body && typeof body.detail === 'string' ? body.detail : `${res.status} ${res.statusText}`
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
 export const api = {
+  soloq: () => request<SoloqOverview>('/api/soloq'),
+  soloqSetKey: (key: string) => requestDetail<SoloqKey>('/api/soloq/key', json('PUT', { key })),
+  soloqCheckKey: () => requestDetail<SoloqKey>('/api/soloq/key/check', json('POST')),
+  soloqDeleteKey: () => requestDetail<SoloqKey>('/api/soloq/key', json('DELETE')),
+  soloqImportStatus: () => request<SoloqImportStatus>('/api/soloq/import'),
+  soloqStart: (settings: SoloqSettings) => requestDetail<SoloqImportStatus>('/api/soloq/import', json('POST', settings)),
+  soloqCancel: () => request<SoloqImportStatus>('/api/soloq/import/cancel', { method: 'POST' }),
   importStatus: () => request<ImportStatus>('/api/import'),
   startImport: (body: { leagues: string[]; first_year: number }) =>
     request<ImportStatus>('/api/import', {

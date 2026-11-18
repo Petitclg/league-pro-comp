@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type GameData, type Highlight, type HighlightType, type SeriesData, type SeriesQuery, type SideDraft, ROLE_LABEL } from './api'
 import { Champ } from './Champ'
-import { useScope } from './scope'
+import { RANK_LABEL, useScope } from './scope'
 import { formatDuration } from './utils'
 
 const HL_ICON: Record<HighlightType, string> = { synergy: '🔗', counter: '⚔', signature: '★', rare: '◆' }
@@ -25,6 +25,8 @@ function SideBlock({
   focus: string[]
 }) {
   const data: SideDraft = game.sides[side]
+  // Solo queue: the API gives no draft order, so neither pick numbers nor the first-pick badge
+  const draftOrder = !useScope().meta.soloq
   const mine = game.highlights.filter((h) => h.side === side)
   const roleOrder = ['top', 'jungle', 'mid', 'bot', 'support']
   const picks = [...data.picks].sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role))
@@ -34,7 +36,7 @@ function SideBlock({
       <div className="side-title">
         <strong>{data.team}</strong>
         <span className="side-tag">{side === 1 ? 'Blue' : 'Red'}</span>
-        {side === 1 && <span className="badge first" title="Le côté Blue a la 1ère sélection et le 1er ban">1ʳᵉ sélection · 1er ban</span>}
+        {side === 1 && draftOrder && <span className="badge first" title="Le côté Blue a la 1ère sélection et le 1er ban">1ʳᵉ sélection · 1er ban</span>}
         {data.win && <span className="badge win">Victoire</span>}
         {data.stats.kills != null && <span className="kills">{data.stats.kills} kills</span>}
       </div>
@@ -50,7 +52,7 @@ function SideBlock({
                   ring={focus.includes(p.champion) ? 'focus' : undefined}
                   badge={
                     <>
-                      <span className="slot-badge" title={`Pick n°${p.slot} de la draft`}>{p.slot}</span>
+                      {draftOrder && <span className="slot-badge" title={`Pick n°${p.slot} de la draft`}>{p.slot}</span>}
                       {related.length > 0 && (
                         <span className="hl-badges" title={related.map((h) => h.text).join('\n')}>
                           {[...new Set(related.map((h) => h.type))].map((t) => HL_ICON[t]).join('')}
@@ -75,7 +77,7 @@ function SideBlock({
               size={26}
               banned
               ring={focus.includes(b.champion) ? 'focus' : undefined}
-              badge={<span className="slot-badge small">{b.order}</span>}
+              badge={draftOrder ? <span className="slot-badge small">{b.order}</span> : undefined}
             />
           ))}
         </div>
@@ -103,7 +105,7 @@ function GameRow({ game, focus }: { game: GameData; focus: string[] }) {
     <div className={`game-row${game.matched ? '' : ' dim'}`}>
       <div className="game-grid">
         <div className="game-meta">
-          <strong>Game {game.game_number ?? '?'}</strong>
+          <strong>{game.rank ? (RANK_LABEL[game.rank] ?? game.rank) : `Game ${game.game_number ?? '?'}`}</strong>
           <span>{formatDuration(game.duration)}</span>
           <span className="muted">{game.patch}</span>
         </div>
@@ -133,7 +135,7 @@ export function SeriesCard({ series, focus = [] }: { series: SeriesData; focus?:
   const { meta } = useScope()
   const [a, b] = series.teams
   const [sa, sb] = series.score
-  const tournament = series.tournament.replace(/^[A-Z]+\//, '')
+  const tournament = (series.tournament ?? '').replace(/^[A-Z]+\//, '')
   const league = meta.selected.length > 1 ? series.league : null
   return (
     <article className="series">
@@ -147,6 +149,7 @@ export function SeriesCard({ series, focus = [] }: { series: SeriesData; focus?:
         </div>
         <div className="series-tags">
           {league && <span className="badge league-badge">{league}</span>}
+          {series.rank && <span className="badge" title="Rang des joueurs qui ont permis de trouver la partie">{RANK_LABEL[series.rank] ?? series.rank}</span>}
           {series.best_of && <span className="badge">Bo{series.best_of}</span>}
           {series.fearless && (
             <span className="badge fearless" title="Fearless : un champion joué dans une partie ne peut plus être pick par aucune équipe dans la suite de la série">

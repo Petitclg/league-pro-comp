@@ -1053,6 +1053,23 @@ ul.plain li {
   padding: 8px;
   border-radius: 6px;
 }
+.soloq-key {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.soloq-key input {
+  flex: 0 1 34em;
+  font-family: monospace;
+}
+.soloq-settings {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.soloq-settings input[type='number'] {
+  width: 6em;
+}
 
 .presence {
   display: inline-flex;

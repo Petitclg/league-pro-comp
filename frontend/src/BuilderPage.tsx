@@ -101,6 +101,7 @@ export function BuilderPage() {
       year: filters.year,
       patch: filters.patch,
       fearless: filters.fearless,
+      rank: filters.rank,
     }),
     200,
   )
