@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalize, search } from './fuzzy'
+import { fuzzyFilter, normalize, search } from './fuzzy'
 
 const NAMES = [
   'Ahri', 'Azir', "Kai'Sa", 'Kalista', 'Twisted Fate', 'Miss Fortune', 'Lee Sin', 'Nidalee',
@@ -48,5 +48,19 @@ describe('search', () => {
   it('ranks by popularity when the query is empty or ambiguous', () => {
     expect(search('', NAMES, { Jinx: 10 })[0]).toBe('Jinx')
     expect(search('j', NAMES, { Jhin: 5, Jinx: 9 }).slice(0, 2)).toEqual(['Jinx', 'Jhin'])
+  })
+})
+
+describe('fuzzyFilter (champion multi-select)', () => {
+  it('keeps the list as is without a query', () => {
+    expect(fuzzyFilter('  ', NAMES)).toBe(NAMES)
+  })
+
+  it('ranks every tolerant match, without the 8-result limit of the autocomplete', () => {
+    expect(fuzzyFilter('wukon', NAMES)[0]).toBe('Wukong')
+    expect(fuzzyFilter('j4', NAMES)[0]).toBe('Jarvan IV')
+    const withA = NAMES.filter((n) => normalize(n).includes('a'))
+    expect(withA.length).toBeGreaterThan(8)
+    expect(fuzzyFilter('a', NAMES)).toHaveLength(withA.length)
   })
 })

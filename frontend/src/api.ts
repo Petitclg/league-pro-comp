@@ -493,6 +493,84 @@ export interface LiveState {
   bans?: string[]
 }
 
+export type ItemLevel = 'strong' | 'likely' | 'hint'
+
+/** Purchase times in minutes: quartiles and 21 bars of 2 minutes (the last one = 40 min and more). */
+export interface ItemTiming {
+  p25: number | null
+  median: number | null
+  p75: number | null
+  histogram: number[]
+}
+
+/** A row of an item list: frequency, timing and winrate against the winrate expected at the same moment. */
+export interface ItemRowStats {
+  games: number
+  share: number
+  wins: number
+  decided: number
+  winrate: number | null
+  wr_low: number | null
+  wr_high: number | null
+  expected: number | null
+  wr_adjusted: number | null
+  delta: number | null
+  z: number | null
+  level: ItemLevel | null
+  verdict: 'better' | 'worse' | null
+  timing: ItemTiming
+  sold: number
+  ref: { share: number; median: number | null } | null // in the average build (player or matchup filter)
+}
+
+export interface ItemStat extends ItemRowStats {
+  item: number
+  avg_slot?: number // in by_item
+}
+
+export interface PathStat extends ItemRowStats {
+  items: number[]
+}
+
+export interface ItemsAnalysis {
+  champions: string[]
+  role: Role | null
+  player: string | null
+  vs: string | null
+  min_games: number
+  version: string | null
+  names: Record<string, string>
+  builds: number
+  decided: number
+  missing_timeline: number
+  baseline: { wins: number; decided: number; winrate: number | null; wr_low: number | null; wr_high: number | null }
+  slots: { slot: number; builds: number; timing: ItemTiming; items: ItemStat[] }[]
+  by_item: ItemStat[]
+  boots: { builds: number; none: number; items: ItemStat[] }
+  paths: { length: number; builds: number; covered: number | null; rows: PathStat[] }[]
+  tested: number
+  levels: { key: ItemLevel; z: number; min_games: number; by_chance: number }[]
+  reference: { builds: number; decided: number; winrate: number | null; comparable: boolean } | null
+  options: { players: { player: string; games: number }[]; opponents: { champion: string; games: number }[] }
+}
+
+export interface ItemsQuery {
+  champion: string[]
+  role?: string
+  player?: string
+  vs?: string
+  min_games: number
+}
+
+/** A failed request with its HTTP status and the server's `detail`. */
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
 function qs(params: object): string {
   const sp = new URLSearchParams()
   for (const [k, v] of Object.entries(params as Record<string, unknown>)) {
@@ -541,7 +619,7 @@ async function requestDetail<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     const detail = body && typeof body.detail === 'string' ? body.detail : `${res.status} ${res.statusText}`
-    throw new Error(detail)
+    throw new ApiError(res.status, detail)
   }
   return res.json()
 }
@@ -574,6 +652,7 @@ export const api = {
   duo: (f: Filters, kind: string, a: string, b: string) =>
     request<DuoDetail>(`/api/duo${qs({ ...f, kind, a, b })}`),
   records: (f: Filters) => request<RecordSection[]>(`/api/records${qs(f)}`),
+  items: (f: Filters, q: ItemsQuery) => requestDetail<ItemsAnalysis>(`/api/items${qs({ ...f, ...q })}`),
   denial: (f: Filters, a: string, b: string) => request<DenialResult>(`/api/denial${qs({ ...f, a, b })}`),
   countered: (f: Filters) => request<CounteredRanking>(`/api/countered-synergies${qs({ ...f, limit: 20 })}`),
   live: () => request<LiveState>('/api/live'),

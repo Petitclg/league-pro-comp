@@ -8,6 +8,7 @@ import { DraftsPage } from './DraftsPage'
 import { DataPage } from './DataPage'
 import { DuoPage } from './DuoPage'
 import { FilterBar } from './FilterBar'
+import { ItemsPage } from './ItemsPage'
 import { PairsPage } from './PairsPage'
 import { RecordsPage } from './RecordsPage'
 import { RepairBanner } from './RepairBanner'
@@ -21,6 +22,7 @@ const TABS = [
   { id: 'champions', label: 'Champions' },
   { id: 'pairs', label: 'Paires' },
   { id: 'countered', label: 'Synergies contrées' },
+  { id: 'items', label: 'Objets' },
   { id: 'records', label: 'Records' },
   { id: 'builder', label: 'Suggestions / Tracker' },
   { id: 'data', label: 'Données' },
@@ -61,6 +63,8 @@ function Page({ parts, meta }: { parts: string[]; meta: Meta }) {
       ) : (
         <CounteredPage />
       )
+    case 'items':
+      return <ItemsPage />
     case 'records':
       return <RecordsPage />
     case 'builder':
@@ -83,7 +87,7 @@ function Shell({ meta, filters, setFilters }: { meta: Meta; filters: Filters; se
           LoL Pro Comp <small className="version">v{meta.version}</small>
         </h1>
         <nav>
-          {TABS.filter((t) => !(meta.soloq && t.id === 'countered')).map((t) => (
+          {TABS.filter((t) => (meta.soloq ? t.id !== 'countered' : t.id !== 'items')).map((t) => (
             <a key={t.id} href={href(t.id)} className={current === t.id || (t.id === 'drafts' && current === 'game') ? 'active' : ''}>
               {t.label}
             </a>
