@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import importer, live, runtime, soloq, stats
+from . import importer, items, live, runtime, soloq, stats
 from .config import APP_NAME, STATIC_DIR, VERSION
 from .dataset import Dataset, Filters, get_dataset, league_summary
 from .db import ROLES
@@ -286,6 +286,32 @@ def countered(ds: DS, f: F, limit: int = Query(15, ge=1, le=50)):
 @app.get("/api/records")
 def records(ds: DS, f: F):
     return stats.records(ds, f)
+
+
+@app.get("/api/items")
+def item_analyses(
+    leagues: Annotated[tuple[str, ...], Depends(selected_leagues)],
+    f: F,
+    champion: list[str] = Query([]),
+    role: str | None = None,
+    player: str | None = None,
+    vs: str | None = None,
+    min_games: int = Query(5, ge=1),
+):
+    """Purchase order, timing and build paths of 1 to 10 champions. Solo queue only: Leaguepedia has no item purchases."""
+    if leagues != (SOLOQ,):
+        raise HTTPException(422, "Item analyses need the solo queue scope (pro games have no item purchases)")
+    champions = list(dict.fromkeys(c.strip() for c in champion if c.strip()))
+    if not champions:
+        raise HTTPException(422, "Choose at least one champion")
+    if len(champions) > items.MAX_CHAMPIONS:
+        raise HTTPException(422, f"At most {items.MAX_CHAMPIONS} champions")
+    _check_role(role)
+    try:
+        return items.analyse(get_dataset(leagues), f, champions, role or None, (player or "").strip() or None,
+                             (vs or "").strip() or None, min_games)
+    except items.ItemDataUnavailable as exc:
+        raise HTTPException(503, f"Item data unavailable: {exc}") from None
 
 
 class SuggestRequest(BaseModel):
