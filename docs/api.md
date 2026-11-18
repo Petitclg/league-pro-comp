@@ -28,6 +28,7 @@ Les filtres entre eux sont combinés en ET.
 | GET | `/api/denial` | Contre de synergie pour la paire `a`, `b` |
 | GET | `/api/countered-synergies` | Classement des synergies contrées (`limit` ≤ 50) |
 | GET | `/api/records` | Records |
+| GET | `/api/items` | Analyses d'objets (solo queue seulement, REQ-ITEM-1 à 9) : `champion` (répété, 1 à 10), `role`, `player` (Riot ID), `vs` (adversaire au même rôle), `min_games` (≥ 1, défaut 5) et les filtres communs. 422 hors périmètre `SOLOQ`, sans champion, au-delà de 10 champions ou pour un rôle inconnu ; 503 si les données d'objets de Data Dragon sont indisponibles. Contrat ci-dessous |
 | POST | `/api/suggest` | Suggestions de comp (corps : filtres, dont `ranks` en solo queue) |
 | POST | `/api/live/send-recos` | Envoie les recommandations dans le chat du champ select |
 | GET | `/api/live` | État du champ select ; `connected: false` hors client |
@@ -63,3 +64,33 @@ Les filtres entre eux sont combinés en ET.
 Invariant : `sides[n].team`, `sides[n].picks[*].player` et `sides[n].stats` concernent la même équipe (REQ-DATA-4). Le côté `"1"` est Blue.
 
 En solo queue, chaque série contient une seule game, les équipes sont `Blue` et `Red`, `tournament` est la région, `rank` (série et game) donne le rang, `player` est le Riot ID et l'ordre de pick (`slot`) est fictif (attribué par rôle).
+
+## Contrat des analyses d'objets (`/api/items`)
+
+```json
+{
+  "champions": ["Ahri"], "role": "mid", "player": null, "vs": null, "min_games": 5,
+  "version": "15.22.1",
+  "names": {"3089": "Coiffe de Rabadon"},
+  "builds": 120, "decided": 120, "missing_timeline": 2,
+  "baseline": {"wins": 64, "decided": 120, "winrate": 0.5333, "wr_low": 0.44, "wr_high": 0.62},
+  "slots": [{"slot": 1, "builds": 118, "timing": {}, "items": ["ItemStat"]}],
+  "by_item": ["ItemStat + avg_slot"],
+  "boots": {"builds": 120, "none": 6, "items": ["ItemStat"]},
+  "paths": [{"length": 2, "builds": 110, "rows": ["PathStat"]}, {"length": 3, "builds": 95, "rows": []}],
+  "tested": 42,
+  "levels": [{"key": "strong", "z": 2.33, "min_games": 30, "by_chance": 0.8}],
+  "reference": {"builds": 900, "decided": 899, "winrate": 0.51, "comparable": true},
+  "options": {"players": [{"player": "Name#EUW", "games": 12}], "opponents": [{"champion": "Zed", "games": 30}]}
+}
+```
+
+| Champ | Sémantique |
+|---|---|
+| `builds` | Builds analysés : un par pick des champions choisis (au rôle choisi) dans une partie du périmètre qui a sa timeline |
+| `names`, `version` | Nom français de chaque objet cité et version Data Dragon des images (`/cdn/<version>/img/item/<id>.png`) |
+| `ItemStat` | `item` (id), `games` (achats), `share` (part des builds de la liste), `wins`, `decided`, `winrate`, `wr_low` / `wr_high` (Wilson 95 %), `expected` (winrate attendu, REQ-ITEM-6), `wr_adjusted` (lissé vers l'attendu), `delta`, `z`, `level` (`strong`, `likely`, `hint` ou `null`), `verdict` (`better`, `worse` ou `null`), `timing` (`p25`, `median`, `p75` en minutes, `histogram` : achats par tranche de 2 min, la dernière = 40 min et plus), `sold` (part revendue), `ref` (`{share, median}` dans le build moyen, ou `null`) ; dans `by_item`, `avg_slot` |
+| `PathStat` | `items` (ids dans l'ordre), mêmes champs qu'`ItemStat` ; `timing` est celui du dernier objet de la séquence |
+| `boots.none` | Builds sans bottes améliorées |
+| `reference` | Build moyen (mêmes champions, rôle et périmètre, sans `player` ni `vs`), `null` sans ces filtres ; `comparable` faux sous 10 builds filtrés |
+| `tested`, `levels` | `tested` : lignes d'au moins 12 parties décidées (assez pour un niveau) ; `levels[].by_chance` = `tested` × probabilité d'une fausse trouvaille au niveau (bilatérale) |
