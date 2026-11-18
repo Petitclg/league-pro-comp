@@ -1316,3 +1316,78 @@ a.rec-item:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* Items page (solo queue) */
+.items-warning {
+  border-left: 4px solid var(--accent);
+  margin: 12px 0;
+}
+.items-warning p {
+  margin: 0;
+}
+.item-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+}
+.item-panels .card.wide {
+  grid-column: 1 / -1;
+}
+.item-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr));
+  gap: 16px;
+}
+.item-slot h4,
+.item-paths h4 {
+  margin-top: 6px;
+}
+.item-icon img,
+.item-icon .champ-fallback {
+  border-radius: 4px;
+  display: block;
+}
+.item-name,
+.item-seq {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.item-seq > span {
+  display: inline-flex;
+  align-items: center;
+}
+.item-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.timing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.histogram {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  vertical-align: middle;
+}
+.histogram span {
+  width: 3px;
+  min-height: 1px;
+  background: var(--accent);
+  border-radius: 1px 1px 0 0;
+}
+.item-table td {
+  vertical-align: middle;
+}
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.item-name span {
+  min-width: 110px;
+}

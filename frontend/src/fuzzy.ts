@@ -133,3 +133,8 @@ export function search(
     .slice(0, limit)
     .map((x) => x.n)
 }
+
+/** Every name matching `query`, best first and without a limit (filter of a champion list); an empty query keeps the list. */
+export function fuzzyFilter(query: string, names: string[]): string[] {
+  return normalize(query) ? search(query, names, {}, Infinity) : names
+}

@@ -73,6 +73,7 @@ En plus du pro, l'application peut importer des parties **classées solo/duo de 
 - **Volume** : l'import tourne jusqu'à l'objectif de parties, ne garde que les N derniers patchs et peut ignorer les patchs anciens. Arrêté ou interrompu par la fermeture de l'application, il reprend là où il en était (état en base).
 - **Stockage compact** : pas de JSON brut ; statistiques de fin de partie, bans, frames par minute (or, XP, niveau, CS, K/D/A, dégâts), objectifs et achats d'objets compressés, soit quelques Ko par partie. Les noms de champions viennent de Data Dragon.
 - **Limites** : une partie solo queue est une « série » d'une game entre Blue et Red, jamais Fearless ; l'ordre de pick n'est pas fourni par l'API, d'où un ordre fictif et des statistiques de draft (position de pick, synergies contrées) masquées dans ce périmètre.
+- **Objets** (page propre à la solo queue) : pour 1 à 10 champions, ordre et minute d'achat des objets complétés, bottes et chemins de build, avec filtres rôle, joueur et adversaire de lane. Chaque winrate est comparé à celui attendu au même moment d'achat, car un objet acheté tôt l'est surtout par une équipe en avance. Noms et images des objets via Data Dragon, gardés dans `ddragon/` du dossier de données pour l'usage hors ligne. Détails : [exigences](docs/requirements.md#objets-item).
 
 Détails : [architecture](docs/architecture.md#import-solo-queue-api-riot) et [modèle de données](docs/data-model.md#solo-queue-soloqdb).
 

@@ -7,7 +7,7 @@ export interface Option {
   badge?: string
 }
 
-/** Dropdown with checkboxes: pick any number of values, search the list, clear in one click. */
+/** Dropdown with checkboxes: pick any number of values (up to `max`), search the list, clear in one click. */
 export function MultiSelect({
   label,
   allLabel,
@@ -15,6 +15,9 @@ export function MultiSelect({
   options,
   value,
   onChange,
+  max,
+  maxTitle,
+  filter,
 }: {
   label: string // aria label and menu title
   allLabel: string // shown when nothing is selected
@@ -22,6 +25,9 @@ export function MultiSelect({
   options: Option[]
   value: string[]
   onChange: (value: string[]) => void
+  max?: number // further options are disabled once reached; no "select all"
+  maxTitle?: string // tooltip of the disabled options
+  filter?: (query: string, options: Option[]) => Option[] // search (default: label contains the query)
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -43,11 +49,14 @@ export function MultiSelect({
 
   const labels = useMemo(() => new Map(options.map((o) => [o.value, o.label])), [options])
   const shown = useMemo(() => {
+    if (filter) return filter(query, options)
     const q = query.trim().toLowerCase()
     return q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options
-  }, [options, query])
+  }, [options, query, filter])
 
-  const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
+  const full = max !== undefined && value.length >= max
+  const toggle = (v: string) =>
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : full ? value : [...value, v])
 
   const summary =
     value.length === 0
@@ -86,29 +95,34 @@ export function MultiSelect({
             />
           )}
           <div className="multi-actions">
-            <button
-              type="button"
-              className="link-btn"
-              disabled={!shown.length}
-              onClick={() => onChange([...new Set([...value, ...shown.map((o) => o.value)])])}
-            >
-              Tout sélectionner{query ? ' (filtrés)' : ''}
-            </button>
+            {max === undefined && (
+              <button
+                type="button"
+                className="link-btn"
+                disabled={!shown.length}
+                onClick={() => onChange([...new Set([...value, ...shown.map((o) => o.value)])])}
+              >
+                Tout sélectionner{query ? ' (filtrés)' : ''}
+              </button>
+            )}
             <button type="button" className="link-btn" disabled={!value.length} onClick={() => onChange([])}>
               Tout effacer
             </button>
           </div>
           <ul className="multi-list">
-            {shown.map((o) => (
-              <li key={o.value}>
-                <label>
-                  <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
-                  <span className="multi-label">{o.label}</span>
-                  {o.detail && <small className="muted">{o.detail}</small>}
-                  {o.badge && <span className="badge fearless">{o.badge}</span>}
-                </label>
-              </li>
-            ))}
+            {shown.map((o) => {
+              const locked = full && !value.includes(o.value)
+              return (
+                <li key={o.value}>
+                  <label title={locked ? maxTitle : undefined}>
+                    <input type="checkbox" checked={value.includes(o.value)} disabled={locked} onChange={() => toggle(o.value)} />
+                    <span className="multi-label">{o.label}</span>
+                    {o.detail && <small className="muted">{o.detail}</small>}
+                    {o.badge && <span className="badge fearless">{o.badge}</span>}
+                  </label>
+                </li>
+              )
+            })}
             {shown.length === 0 && <li className="muted multi-empty">Aucun résultat</li>}
           </ul>
         </div>
