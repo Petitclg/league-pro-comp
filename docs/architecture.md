@@ -120,7 +120,7 @@ sequenceDiagram
 
 ## Analyses d'objets (solo queue)
 
-`items.py` répond à `/api/items` (REQ-ITEM-1 à 9). Il part des parties filtrées du `Dataset` solo queue (périmètre, rang, patch, région) et ne lit dans `soloq.db` que les joueurs (`participant` par côté et rôle) et le blob `items` des parties où jouent les champions choisis, à chaque requête : rien n'est gardé en mémoire d'une requête à l'autre en dehors du catalogue d'objets.
+`items.py` répond à `/api/items` (REQ-ITEM-1 à 11). Il part des parties filtrées du `Dataset` solo queue (périmètre, rang, patch, région) et ne lit dans `soloq.db` que les joueurs (`participant` par côté et rôle) et le blob `items` des parties où jouent les champions choisis, à chaque requête, par paquets de 500 parties : les événements d'une partie sont libérés dès que les builds de ses picks sont reconstruits, seuls les builds (au plus 7 objets chacun) restent jusqu'à la fin de la requête. Rien n'est gardé en mémoire d'une requête à l'autre en dehors du catalogue d'objets. Avec un filtre joueur ou matchup, les builds sans filtre (build moyen) sont reconstruits dans la même passe : chaque blob n'est décompressé qu'une fois.
 
 ```mermaid
 flowchart LR
@@ -138,6 +138,40 @@ flowchart LR
 | Catalogue | `item.json` (`fr_FR`) de la version Data Dragon du patch (`15.22` → première version `15.22.*` de `versions.json`, sinon la plus récente), en mémoire et dans `ddragon/items-<patch>.json` du dossier de données (seulement quand la version correspond au patch) ; le cache disque est lu avant le réseau, ce qui permet l'usage hors ligne |
 | Build moyen | Avec un filtre joueur ou matchup, la même analyse est faite sans ces filtres et sert de référence aux lignes (REQ-ITEM-8) |
 | Interface | Page `ItemsPage.tsx` (onglet « Objets », solo queue seulement) : les colonnes des tableaux d'objets sont décrites par une liste (`ITEM_COLUMNS`) et les cartes par une liste de panneaux, pour qu'une statistique par objet s'ajoute sans toucher au reste |
+
+### Seuils et alternatives rejetées
+
+Mesures faites sur le catalogue réel `fr_FR` 16.23.1 (863 entrées) quand elles sont citées.
+
+| Seuil | Valeur | Pourquoi | Alternatives rejetées |
+|---|---|---|---|
+| Coût minimal d'un objet complété | 1 500 po | Une fois appliquées les autres règles (boutique de la Faille, non consommable, non réservé, pas d'amélioration achetable), il reste hors bottes les Jambières de métal (1 100 po, amélioration de bottes sans tag `Boots`) et, sous 1 000 po, objets de départ, quêtes de support et compagnons de jungle. L'objet final le moins cher est le Voleur d'âmes de Mejai (1 500 po), puis 2 200 po. 1 500 est la plus petite valeur qui garde Mejai, avec 400 po de marge sur les restes ; CA-ITEM-3 la revérifie à chaque saison | **2 000 po** (spec v1) : écarte Mejai, si bien qu'un joueur qui le prend en premier voit tous ses emplacements décalés. **Liste blanche** : ≈ 107 objets à maintenir à chaque patch, un oubli fait disparaître un objet sans erreur. **Champ `depth`** : faux dans les deux sens (Coiffe de Rabadon et Lame d'infini ont `depth` 2 ; 7 améliorations de bottes de niveau 3 ont `depth` 3) |
+| Tranche d'achat du winrate attendu | 5 min, dernière : 35 min et plus | Le moment de l'achat est le meilleur indicateur de l'état de la partie disponible sans lire d'autre blob : un objet acheté tôt l'est par des joueurs en avance. 5 min sépare « en avance, à l'heure, en retard » pour un même emplacement ; au-delà de 35 min les achats sont rares et sont regroupés pour que la dernière cellule ne soit pas vide | **Sans tranche** : l'objet acheté tôt paraît gagner parce que son acheteur est en avance. **2 min** (comme l'histogramme) : cellules 2,5 fois plus petites, attendu trop bruité. **Écart d'or d'équipe à la minute de l'achat** (blob `frames`) : meilleur contrôle, mais le blob `frames` est le plus gros d'une partie ; le décompresser en plus sort du budget de REQ-ITEM-10 (évolution possible) |
+| Lissage du winrate | 20 parties virtuelles au winrate attendu | Même valeur que `strength.PRIOR_GAMES` (les winrates lissés de l'application se lisent pareil) : une ligne de 20 parties décidées pèse moitié ; à `min_games` 5, un 5 / 5 avec 50 % attendu devient 60 % | **10** : le même 5 / 5 donne 66,7 %, trop proche du brut pour une ligne à peine affichée. **50** : une ligne de 100 parties garde un tiers d'attendu, les écarts réels sont écrasés. **Lissage vers 50 %** : réintroduit le biais que l'attendu corrige |
+| z binomial | Bilatéral, attendu borné à [25 %, 75 %] | Même calcul que `strength._z`. Bilatéral, car l'interface montre les écarts dans les deux sens : les probabilités de fausse trouvaille sont 2 %, 10 % et 20 % (0,0198, 0,101, 0,2005). Borne : un attendu proche de 0 ou 1 (petite cellule) réduit la variance et gonfle z (exemple 3 : 4,47 au lieu de 1,55) | **Unilatéral** : sous-estime de moitié les fausses trouvailles quand les deux sens sont affichés. **Correction de Bonferroni ou FDR** : avec des dizaines de lignes, plus rien ne passe ; l'application montre plutôt le nombre de trouvailles attendues par hasard, comme la page Synergies contrées |
+| Parties décidées par niveau | 30 / 20 / 12 | L'approximation normale du binomial est mauvaise sur peu de parties ; sous 12, une ligne n'a aucun niveau | Seuils des matchups (8 / 6 / 5) : prévus pour un écart à 50 % entre deux champions, trop bas pour des lignes qui comparent un attendu lui-même estimé |
+| Chemins listés | 10 par longueur | Le nombre de séquences distinctes croît vite avec la longueur ; la queue est sous `min_games` ; 10 lignes tiennent dans une carte sans défilement ; `covered` dit ce qu'elles représentent | **Toutes** : des centaines de lignes illisibles. **Seuil de part** : longueur de liste imprévisible |
+| `min_games` par défaut | 5 achats | Seuil d'affichage seulement (un niveau exige 12 parties décidées) ; même défaut que la page Paires ; sous 5, une part est anecdotique (< 0,5 % de 1 000 builds) | **1** : des dizaines de lignes d'un seul achat. **12** : cache des choix rares mais réels quand un filtre joueur ne laisse que 10 à 50 builds |
+| Build moyen comparable | 10 builds filtrés | Sous 10, un seul build déplace une part de 10 points ou plus | Pas de seuil : comparaisons trompeuses sur 2 ou 3 parties |
+
+### Performance et volumes
+
+Base de référence : 100 000 parties, soit 1 000 000 de picks (10 par partie). Un champion populaire est joué dans ≈ 10 % des parties (≈ 10 000 builds) ; 10 champions choisis donnent au plus ≈ 50 000 builds. Mesures sur données synthétiques (≈ 300 événements d'objets par partie, blob `items` ≈ 2 Ko compressé) : lecture SQLite par paquets de 500 parties ≈ 0,04 s pour 10 000 parties, décompression + JSON + reconstruction ≈ 0,13 ms par partie.
+
+| Étape | 1 champion (10 000 builds) | 10 champions (50 000 builds) |
+|---|---|---|
+| Filtres du `Dataset` (déjà en mémoire) | ≤ 0,2 s | ≤ 0,2 s |
+| Lecture de `soloq.db` | ≤ 0,3 s | ≤ 1 s |
+| Décompression et reconstruction | ≤ 1,5 s | ≤ 7 s |
+| Agrégation et contrastes (linéaires en achats) | ≤ 0,3 s | ≤ 1,5 s |
+| **Total, catalogues en cache** | **cible 2 s, maximum 3 s** | **maximum 10 s** |
+| Catalogue d'un patch absent | + 1 téléchargement (≈ 730 Ko, délai maximal 10 s) | idem par patch |
+
+| Ressource | Coût |
+|---|---|
+| Mémoire par requête | Paquet de 500 blobs (≈ 1 Mo) et événements d'une partie à la fois ; ≈ 1 Ko par build retenu et ≈ 3 enregistrements d'achat par objet du build pour l'agrégation : < 50 Mo pour 10 000 builds, proportionnelle au-delà. Rien ne reste après la requête |
+| Catalogue en mémoire | Les 10 champs utilisés seulement (`name`, `gold`, `maps`, `inStore`, `consumed`, `requiredChampion`, `requiredAlly`, `into`, `from`, `tags`) : ≈ 1 à 2 Mo par patch demandé depuis le lancement (3 patchs avec la rétention par défaut) |
+| Cache `ddragon/` | Un fichier `items-<patch>.json` réduit aux mêmes champs : ≈ 220 Ko (contre 733 Ko pour l'`item.json` brut), ≈ 5 Mo par an (≈ 24 patchs). Pas de purge : négligeable devant `soloq.db` |
 
 ## Déploiement
 
@@ -158,4 +192,4 @@ flowchart LR
 | Solo queue dans une base séparée et compacte | `lck.db` reste intact ; le JSON brut (≈ 1 Mo par partie avec la timeline) n'est jamais gardé, seulement quelques Ko de statistiques et de blobs compressés |
 | Solo queue dans le même `Dataset` | Toutes les pages (champions, paires, duos, records, suggestions) fonctionnent sans code spécifique ; les notions pro sans objet sont neutralisées (voir [Modèle de données](data-model.md#solo-queue-soloqdb)) |
 | Objets lus à la demande dans `soloq.db` | Les blobs d'objets ne sont décompressés que pour les parties des champions demandés : pas de mémoire supplémentaire pour le `Dataset`, et le rechargement de `soloq.db` est sans effet sur les objets |
-| Règle d'objet complété tirée de Data Dragon | Pas de liste d'objets à maintenir à chaque patch ; le coût minimal (2 000 po) écarte composants, objets de départ, quêtes de support et compagnons de jungle |
+| Règle d'objet complété tirée de Data Dragon | Pas de liste d'objets à maintenir à chaque patch ; le coût minimal (1 500 po) écarte objets de départ, quêtes de support, compagnons de jungle et améliorations de bottes, et garde Mejai (voir [Seuils et alternatives rejetées](#seuils-et-alternatives-rejetees)) |
