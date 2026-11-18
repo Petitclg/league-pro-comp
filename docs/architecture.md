@@ -17,6 +17,9 @@ flowchart LR
     RIOT[(API Riot\nLeague-Exp-V4, Match-V5)] -->|JSON| SQI[soloq_ingest.py\n+ riot.py]
     SQI --> SQDB[(SQLite soloq.db)]
     SQDB --> DS
+    SQDB -->|événements d'objets| ITM[items.py]
+    DD[(Data Dragon\nitem.json)] --> ITM
+    ITM --> API
 ```
 
 ## Composants
@@ -35,6 +38,7 @@ flowchart LR
 | `backend/app/riot.py` | Client de l'API Riot (League-Exp-V4, Summoner-V4, Match-V5), routage plateforme / région, limiteur de débit |
 | `backend/app/soloq.py` | Base séparée `soloq.db` : schéma, extraction compacte des matchs et timelines, rétention par patch, chargement en `Dataset` |
 | `backend/app/soloq_ingest.py` | Échantillonnage solo queue : classement → joueurs graines → historiques → matchs, dédoublonnage, étiquette de rang |
+| `backend/app/items.py` | Analyses d'objets (solo queue) : catalogue Data Dragon par patch, reconstruction des builds depuis les événements d'objets, ordre et timing d'achat, chemins de build, winrates comparés à l'attendu |
 | `backend/app/config.py` | Dossier de données et réglages locaux (`settings.json` : clé API Riot, options d'import solo queue) |
 | `backend/app/desktop.py`, `launcher.py`, `runtime.py` | Application de bureau, instance unique, arrêt |
 | `backend/app/updater.py` | Mise à jour automatique |
@@ -114,6 +118,27 @@ sequenceDiagram
 | Champions | Les ids de champions sont convertis en noms via Data Dragon (mêmes noms que les données pro) |
 | Rechargement | Le jeu de données solo queue est rechargé au plus une fois par minute pendant l'import |
 
+## Analyses d'objets (solo queue)
+
+`items.py` répond à `/api/items` (REQ-ITEM-1 à 9). Il part des parties filtrées du `Dataset` solo queue (périmètre, rang, patch, région) et ne lit dans `soloq.db` que les joueurs (`participant` par côté et rôle) et le blob `items` des parties où jouent les champions choisis, à chaque requête : rien n'est gardé en mémoire d'une requête à l'autre en dehors du catalogue d'objets.
+
+```mermaid
+flowchart LR
+    F[Parties filtrées\nDataset] --> P[Picks des champions choisis\nrôle, joueur, matchup]
+    P --> B[Blob items du participant\nsoloq.db]
+    B --> R[reconstruct :\nachats valides après annulations,\nventes, destructions]
+    C[Catalogue Data Dragon\ndu patch] --> K[Objets complétés\net bottes]
+    R --> K
+    K --> A[analyse : emplacements, objets,\nbottes, chemins, timings]
+    A --> W[_contrast : winrate attendu\nmême champion, emplacement,\ntranche de 5 min]
+```
+
+| Point | Fonctionnement |
+|---|---|
+| Catalogue | `item.json` (`fr_FR`) de la version Data Dragon du patch (`15.22` → première version `15.22.*` de `versions.json`, sinon la plus récente), en mémoire et dans `ddragon/items-<patch>.json` du dossier de données (seulement quand la version correspond au patch) ; le cache disque est lu avant le réseau, ce qui permet l'usage hors ligne |
+| Build moyen | Avec un filtre joueur ou matchup, la même analyse est faite sans ces filtres et sert de référence aux lignes (REQ-ITEM-8) |
+| Interface | Page `ItemsPage.tsx` (onglet « Objets », solo queue seulement) : les colonnes des tableaux d'objets sont décrites par une liste (`ITEM_COLUMNS`) et les cartes par une liste de panneaux, pour qu'une statistique par objet s'ajoute sans toucher au reste |
+
 ## Déploiement
 
 - Développement : `uvicorn` (port 8000) + Vite (5173).
@@ -132,3 +157,5 @@ sequenceDiagram
 | SQLite + chargement mémoire | Application locale mono-utilisateur, analyses en Python |
 | Solo queue dans une base séparée et compacte | `lck.db` reste intact ; le JSON brut (≈ 1 Mo par partie avec la timeline) n'est jamais gardé, seulement quelques Ko de statistiques et de blobs compressés |
 | Solo queue dans le même `Dataset` | Toutes les pages (champions, paires, duos, records, suggestions) fonctionnent sans code spécifique ; les notions pro sans objet sont neutralisées (voir [Modèle de données](data-model.md#solo-queue-soloqdb)) |
+| Objets lus à la demande dans `soloq.db` | Les blobs d'objets ne sont décompressés que pour les parties des champions demandés : pas de mémoire supplémentaire pour le `Dataset`, et le rechargement de `soloq.db` est sans effet sur les objets |
+| Règle d'objet complété tirée de Data Dragon | Pas de liste d'objets à maintenir à chaque patch ; le coût minimal (2 000 po) écarte composants, objets de départ, quêtes de support et compagnons de jungle |
