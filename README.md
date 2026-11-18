@@ -13,7 +13,7 @@ Ni Python ni Node ne sont nécessaires.
 
 1. Lancer l'application (menu Démarrer, ou `LoLProComp.exe`) : une fenêtre s'ouvre (Microsoft Edge en mode application, présent sur Windows 10/11 ; Chrome sinon). Au premier lancement, la page **Données** propose d'importer la LCK (≈ 1 min) ou toutes les ligues (≈ 10 à 20 min) depuis Leaguepedia. Le bouton « Mettre à jour (année en cours) » rafraîchit ensuite les données quand on veut.
 2. **Mise à jour automatique, comme Discord** : à chaque démarrage, l'application cherche une release plus récente sur GitHub ; si elle existe, une petite fenêtre télécharge la nouvelle version de `LoLProComp.exe` (taille et SHA-256 vérifiés), remplace l'exécutable et relance l'application. C'est identique en version installée ou portable : l'installateur n'est utilisé que pour la première installation (le dossier d'installation appartient à l'utilisateur, l'application peut donc s'y remplacer elle-même). Hors ligne ou en cas de problème, la version actuelle démarre normalement. `LOLPRO_NO_UPDATE=1` désactive la recherche.
-3. Fermer la fenêtre arrête l'application. Les données sont dans `%LOCALAPPDATA%\LoLProComp` (base `lck.db`, journal `app.log`) : elles survivent aux mises à jour, et sont partagées entre version installée et portable. Un second lancement ouvre simplement une fenêtre sur l'instance déjà démarrée.
+3. Fermer la fenêtre arrête l'application. Les données sont dans `%LOCALAPPDATA%\LoLProComp` (bases `lck.db` et `soloq.db`, réglages `settings.json`, journal `app.log`) : elles survivent aux mises à jour, et sont partagées entre version installée et portable. Un second lancement ouvre simplement une fenêtre sur l'instance déjà démarrée.
 
 Le tracker fonctionne tel quel : l'application tourne sur la même machine que le client LoL.
 
@@ -62,6 +62,19 @@ L'import peut aussi se faire depuis l'application (page **Données**) : le serve
 Source : Leaguepedia (tables Cargo `PicksAndBansS7`, `ScoreboardGames`, `ScoreboardPlayers`, `MatchSchedule`, `Tournaments`) via `Special:CargoExport`, qui n'est pas limité comme `api.php` (l'API classique renvoie « ratelimited » en permanence). Les CSV d'Oracle's Elixir sont sur Google Drive avec un quota dépassé, d'où ce choix. La table de drafts commence en 2017 (saison 7). Les ligues et leurs noms Leaguepedia (EU LCS → LEC, NA LCS → LCS...) sont déclarés dans [leagues.py](backend/app/leagues.py) ; ajouter une ligue = ajouter une entrée. Le contenu de Leaguepedia est publié sous licence CC BY-SA 3.0 : les données importées en gardent les conditions. Les images de champions viennent du CDN public Data Dragon de Riot ; ce projet n'est pas affilié à Riot Games.
 
 Les équipes coréennes sont regroupées par franchise ([teams.py](backend/app/teams.py)) : DWG KIA / DAMWON → Dplus KIA, etc. Les autres ligues gardent les noms d'équipe de Leaguepedia, donc un changement de nom compte comme une autre équipe.
+
+## Solo queue (API Riot)
+
+En plus du pro, l'application peut importer des parties **classées solo/duo de rang Émeraude et plus** via l'API Riot, dans une base séparée `soloq.db` (la base pro `lck.db` n'est pas touchée). Le périmètre « Solo queue » apparaît alors dans le sélecteur de ligues (jamais combiné aux ligues pro), avec un filtre de **rang** et un filtre de **région** ; toutes les pages fonctionnent dessus.
+
+- **Clé API** : à créer sur [developer.riotgames.com](https://developer.riotgames.com) puis à coller dans la page **Données** (une clé de développement expire au bout de 24 h : l'application signale une clé expirée ou invalide). Elle est vérifiée par une requête, puis stockée **en clair** dans `settings.json` du dossier de données local ; elle n'est jamais commitée, journalisée ni affichée (seuls ses 4 derniers caractères le sont).
+- **Échantillonnage** : des joueurs « graines » sont tirés du classement des rangs choisis ; leurs 20 dernières parties classées sont dédoublonnées puis téléchargées (match + timeline, 2 requêtes par partie). Le rang d'une partie est celui des graines qui l'ont trouvée (tier majoritaire, le plus haut en cas d'égalité) : l'API ne donne pas le rang d'une partie.
+- **Débit** : la limite des clés personnelles (20 requêtes/s, 100 requêtes/2 min, par hôte) est respectée côté client ; un 429 attend la durée `Retry-After` puis reprend. Compter ≈ 25 parties par minute et par région.
+- **Volume** : l'import tourne jusqu'à l'objectif de parties, ne garde que les N derniers patchs et peut ignorer les patchs anciens. Arrêté ou interrompu par la fermeture de l'application, il reprend là où il en était (état en base).
+- **Stockage compact** : pas de JSON brut ; statistiques de fin de partie, bans, frames par minute (or, XP, niveau, CS, K/D/A, dégâts), objectifs et achats d'objets compressés, soit quelques Ko par partie. Les noms de champions viennent de Data Dragon.
+- **Limites** : une partie solo queue est une « série » d'une game entre Blue et Red, jamais Fearless ; l'ordre de pick n'est pas fourni par l'API, d'où un ordre fictif et des statistiques de draft (position de pick, synergies contrées) masquées dans ce périmètre.
+
+Détails : [architecture](docs/architecture.md#import-solo-queue-api-riot) et [modèle de données](docs/data-model.md#solo-queue-soloqdb).
 
 ## Fearless
 

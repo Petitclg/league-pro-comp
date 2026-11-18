@@ -6,7 +6,7 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 
 ## Périmètre
 
-- Dans le périmètre : import depuis Leaguepedia, analyses statistiques, interface web locale, application de bureau Windows (exécutable unique), mise à jour automatique.
+- Dans le périmètre : import depuis Leaguepedia, import de parties classées solo queue (Émeraude et plus) via l'API Riot avec la clé de l'utilisateur, analyses statistiques, interface web locale, application de bureau Windows (exécutable unique), mise à jour automatique.
 - Hors périmètre : compte utilisateur, hébergement multi-utilisateur, données de matchs en direct, affiliation Riot Games.
 
 ## Utilisateurs
@@ -32,11 +32,23 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 | REQ-DATA-7 | Un tournoi est marqué Fearless quand ses séries multi-games ne répètent (presque) jamais de champion ; c'est déduit des données. | `dataset._flag_fearless`, `test_app.py` |
 | REQ-DATA-8 | **Correction des données existantes** : chaque ligue porte une révision d'import (`INGEST_REVISION`). Au démarrage de l'application de bureau, les ligues importées sous une révision plus ancienne (événements internationaux compris) sont ré-importées automatiquement en arrière-plan, depuis la plus ancienne année stockée, avec une bannière de progression ; la page se recharge à la fin. Une ligue n'est marquée à jour que si l'import a couvert toutes ses parties stockées sans échec ; sinon (hors ligne, annulation) l'essai est refait au lancement suivant. Toute modification des règles d'import qui change des données déjà stockées incrémente `INGEST_REVISION`. | `test_repair.py`, `importer.outdated_leagues`, `RepairBanner.tsx` |
 
+### Solo queue (SOLOQ)
+
+| ID | Exigence | Vérifié par |
+|---|---|---|
+| REQ-SOLOQ-1 | Les parties classées solo/duo (file 420) des rangs choisis (Émeraude à Challenger) et des régions choisies sont importées via l'API Riot dans une base séparée `soloq.db` ; `lck.db` n'est pas modifiée. | `soloq.py`, `test_soloq.py` |
+| REQ-SOLOQ-2 | **Stockage compact** : aucun JSON brut ; par partie, les statistiques de fin de partie par joueur, les bans, les totaux par côté et des blobs compressés (frames par minute, kills, objectifs, événements d'objets) ; quelques Ko par partie (au plus ~40 Ko). | `soloq.extract_timeline`, `test_soloq.py::test_timeline_is_reduced_to_compact_frames_and_events` |
+| REQ-SOLOQ-3 | **Limite de débit** : au plus 20 requêtes/s et 100 requêtes/2 min par hôte de routage (clé personnelle) ; un 429 attend la durée `Retry-After` puis réessaie, sans arrêter l'import. | `riot.RateLimiter`, `test_soloq.py` |
+| REQ-SOLOQ-4 | **Clé API** : saisie dans la page Données, vérifiée par une requête avant d'être enregistrée dans `settings.json` du dossier de données local ; jamais commitée, journalisée ni affichée en clair. Une clé refusée (401/403, clé de développement expirée après 24 h) arrête l'import et est signalée « expirée ou invalide ». | `test_soloq.py::test_api_key_endpoints_never_expose_the_key` |
+| REQ-SOLOQ-5 | **Échantillonnage et rang** : joueurs graines tirés du classement, rang le moins rempli en premier ; leurs 20 dernières parties classées sont dédoublonnées contre les parties stockées, ignorées ou en attente. Une partie porte le tier majoritaire des graines qui l'ont trouvée (le plus haut en cas d'égalité). | `soloq_ingest.Sampler`, `test_soloq.py` |
+| REQ-SOLOQ-6 | **Reprise** : l'état de l'import (classement, graines, file, parties ignorées) est en base ; un import arrêté reprend sans retélécharger, et un import interrompu par la fermeture de l'application reprend au lancement suivant. L'import continue jusqu'à l'objectif de volume ; seuls les N derniers patchs sont gardés. | `test_soloq.py::test_interrupted_import_resumes_where_it_stopped` |
+| REQ-SOLOQ-7 | **Périmètre « Solo queue »** : proposé à côté des ligues, jamais combiné avec elles ; filtre de rang et de région ; toutes les pages fonctionnent. Une partie solo queue est une série d'une game Blue / Red, jamais Fearless ; l'ordre de pick, inconnu, est fictif et les statistiques de draft sont masquées. | `test_soloq.py::test_api_soloq_scope_with_rank_filter`, `scope.test.ts` |
+
 ### Analyses (STAT)
 
 | ID | Exigence | Vérifié par |
 |---|---|---|
-| REQ-STAT-1 | Filtres communs : ligues, équipes, années, tournois, patchs, Fearless, numéro de game. OU au sein d'un filtre, ET entre filtres. | `test_multi_filters.py` |
+| REQ-STAT-1 | Filtres communs : ligues, équipes, années, tournois, patchs, Fearless, numéro de game (en solo queue : rang et région). OU au sein d'un filtre, ET entre filtres. | `test_multi_filters.py` |
 | REQ-STAT-2 | Tableau des champions : présence, pick/ban rate, winrate ; fiche détaillée (KDA, CS/min, dégâts, side, game de série, patch, joueurs, synergies, matchups, bans). | `stats.champion_table`, `stats.champion_detail` |
 | REQ-STAT-3 | Indice de force sur 100 : 60 % présence, 40 % winrate ajusté (réduit vers 50 % selon l'échantillon), paliers S→D. | `strength.py`, `test_strength.py` |
 | REQ-STAT-4 | Paires (synergies) et matchups (counters) avec lift = fréquence réelle / attendue ; présence d'un duo corrigée des bans conjoints. | `stats.pair_stats`, `stats.pair_presence` |
@@ -81,7 +93,7 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 
 | ID | Exigence |
 |---|---|
-| REQ-NFR-1 | Au plus 3 combinaisons de ligues en mémoire ; rechargement automatique quand le fichier de base change. |
+| REQ-NFR-1 | Au plus 3 combinaisons de ligues en mémoire ; rechargement automatique quand le fichier de base change (au plus une fois par minute pour `soloq.db` pendant un import). |
 | REQ-NFR-2 | Les analyses lourdes du périmètre par défaut sont préchauffées au démarrage. |
 | REQ-NFR-3 | Le serveur n'écoute qu'en local ; `/api/quit` exige un en-tête personnalisé (protection CORS). |
 | REQ-NFR-4 | Les données importées conservent la licence CC BY-SA 3.0 de Leaguepedia ; images via Data Dragon. |
