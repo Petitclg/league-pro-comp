@@ -77,6 +77,22 @@ En plus du pro, l'application peut importer des parties **classées solo/duo de 
 
 Détails : [architecture](docs/architecture.md#import-solo-queue-api-riot) et [modèle de données](docs/data-model.md#solo-queue-soloqdb).
 
+### Probabilité de victoire et WPA
+
+En solo queue, la page **Probabilité de victoire** affiche la courbe de probabilité de victoire de Blue d'une partie (lien « 📈 Probabilité » sur chaque partie de la page Drafts), la valeur moyenne des kills et objectifs et le WPA (*Win Probability Added*) des kills et morts par champion ou par joueur ; la route `/api/wpa/items` donne le WPA de chaque objet. Méthode reprise du mémoire de xPetu (Université Aalto, 2024, CC BY-NC-SA 4.0) ; exigences REQ-WPA dans [docs/requirements.md](docs/requirements.md#probabilite-de-victoire-et-wpa-wpa).
+
+Aucun modèle n'est livré : il s'entraîne localement sur `soloq.db` (outil de développement, scikit-learn n'est jamais dans l'exécutable) et l'application le prend en compte sans redémarrage :
+
+```powershell
+.\.venv\Scripts\pip install -r backend\requirements-ml.txt
+.\.venv\Scripts\python backend\tools\train_wpa.py                    # data\soloq.db -> data\wpa_model.json
+.\.venv\Scripts\python backend\tools\train_wpa.py --synthetic 2000   # parties générées, pour essayer
+# application installée :
+.\.venv\Scripts\python backend\tools\train_wpa.py --db "$env:LOCALAPPDATA\LoLProComp\soloq.db" --out "$env:LOCALAPPDATA\LoLProComp\wpa_model.json"
+```
+
+L'outil affiche accuracy, log loss (et celle d'une régression logistique de référence), Brier et ECE sur 20 % des parties ; un modèle n'est « validé » qu'avec au moins 50 000 parties réelles, 70 % d'accuracy et 3 % d'ECE, sinon l'application l'affiche comme provisoire.
+
 ## Fearless
 
 Constaté dans les données : depuis la LCK Cup 2025 (15/01/2025), **aucun champion n'est jamais repris dans une série, par aucune des deux équipes** (hard Fearless, 0 répétition sur plus de 400 séries ; avant, des champions se répètent dans > 95 % des séries). Un tournoi est marqué Fearless quand ses séries multi-games ne répètent (presque) jamais de champion : c'est déduit des données, pas codé en dur. Chaque game affiche les champions devenus indisponibles et les filtres permettent d'isoler Fearless / draft classique / numéro de game.
