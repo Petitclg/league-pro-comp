@@ -8,6 +8,7 @@ Spécification versionnée avec le code (docs-as-code) : elle évolue dans la m�
 | [Architecture](architecture.md) | Composants, flux de données, déploiement, mise à jour |
 | [Modèle de données](data-model.md) | Schéma SQLite, invariants, règles d'ingestion |
 | [API](api.md) | Endpoints HTTP du backend |
+| [Agents Copilot](agents.md) | Agents Copilot spécialisés du dépôt (statistiques, API Riot, release) |
 
 ## Conventions
 
