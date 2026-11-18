@@ -1,0 +1,4 @@
+-r requirements.txt
+# Offline training of the win probability model (backend/tools/train_wpa.py). Never imported by
+# backend/app nor shipped in the executable: the app evaluates the exported JSON in pure Python.
+scikit-learn>=1.4
