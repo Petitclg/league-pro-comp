@@ -7,12 +7,13 @@ champion, so the flag comes from the data rather than from hard-coded dates.
 """
 import sqlite3
 import threading
+import time
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .db import DB_PATH, connect
-from .leagues import DEFAULT_LEAGUE
+from .leagues import DEFAULT_LEAGUE, SOLOQ
 from .teams import canonical
 
 # Draft order of the 10 picks / 10 bans (side 1 = blue, which has first pick).
@@ -35,6 +36,7 @@ class Filters:
     with_champions: tuple[str, ...] = ()  # all picked by the same side
     versus: tuple[str, ...] = ()  # picked by opposing sides (needs two champions)
     role: str | None = None  # restricts `champion`/`with_champions[0]` matches to this role
+    ranks: tuple[str, ...] = ()  # solo queue rank tier of the game (EMERALD, DIAMOND...)
 
     def key(self) -> tuple:
         return tuple(getattr(self, f) for f in self.__dataclass_fields__)
@@ -112,6 +114,8 @@ class Dataset:
             return False
         if f.game_numbers and g["game_number"] not in f.game_numbers:
             return False
+        if f.ranks and g.get("rank") not in f.ranks:
+            return False
         if f.teams and g["team1"] not in f.teams and g["team2"] not in f.teams:
             return False
         if f.champion:
@@ -172,6 +176,8 @@ def _comps_of(g: dict) -> list[dict]:
             "game_number": g["game_number"],
             "fearless": g["fearless"],
             "duration": g["duration"],
+            "league": g.get("league"),
+            "rank": g.get("rank"),
             "picks": {p["role"]: p["champion"] for p in s["picks"]},
             "enemy": {p["role"]: p["champion"] for p in o["picks"]},
             "players": {p["role"]: p for p in s["picks"]},
@@ -237,7 +243,9 @@ def load(conn: sqlite3.Connection, league: "str | Iterable[str] | None" = None) 
 
 
 MAX_CACHED_DATASETS = 3
+SOLOQ_RELOAD_SECONDS = 60
 _cache: "OrderedDict[tuple[str, ...], tuple[float, Dataset]]" = OrderedDict()
+_loaded_at: dict[tuple[str, ...], float] = {}
 _cache_lock = threading.Lock()
 _reload_paused = False
 
@@ -252,21 +260,40 @@ def get_dataset(leagues: "str | Iterable[str]" = DEFAULT_LEAGUE) -> Dataset:
     """The dataset of one or several leagues, reloaded whenever the database file changes.
 
     Datasets are built on demand, keyed by their set of leagues; only the most recently used few
-    stay in memory."""
+    stay in memory. The solo queue scope (`SOLOQ`, alone) comes from its own database; its import
+    writes continuously, so it is reloaded at most every SOLOQ_RELOAD_SECONDS."""
     key = _league_tuple(leagues) or (DEFAULT_LEAGUE,)
-    mtime = DB_PATH.stat().st_mtime if DB_PATH.exists() else 0
+    soloq_scope = key == (SOLOQ,)
+    if soloq_scope:
+        from . import soloq
+        path = soloq.SOLOQ_DB_PATH
+    else:
+        path = DB_PATH
+    mtime = path.stat().st_mtime if path.exists() else 0
     with _cache_lock:
         cached = _cache.get(key)
-        if cached and (cached[0] == mtime or _reload_paused):
+        fresh = soloq_scope and time.monotonic() - _loaded_at.get(key, -SOLOQ_RELOAD_SECONDS) < SOLOQ_RELOAD_SECONDS
+        if cached and (cached[0] == mtime or (_reload_paused and not soloq_scope) or fresh):
             _cache.move_to_end(key)
             return cached[1]
-    conn = connect()
-    try:
-        ds = load(conn, key)
-    finally:
-        conn.close()
+    if soloq_scope:
+        if path.exists():
+            conn = soloq.connect(path)
+            try:
+                ds = soloq.load(conn)
+            finally:
+                conn.close()
+        else:
+            ds = Dataset([], {})
+    else:
+        conn = connect()
+        try:
+            ds = load(conn, key)
+        finally:
+            conn.close()
     with _cache_lock:
         _cache[key] = (mtime, ds)
+        _loaded_at[key] = time.monotonic()
         _cache.move_to_end(key)
         while len(_cache) > MAX_CACHED_DATASETS:
             _cache.popitem(last=False)
