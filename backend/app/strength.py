@@ -1,6 +1,8 @@
 """Champion strength and "spots" where a champion over- or under-performs."""
 from math import sqrt
 
+from .leagues import SOLOQ
+
 # Prior for the shrunk winrate: 10 virtual wins and 10 virtual losses.
 PRIOR_GAMES = 20
 MIN_TIER_GAMES = 10  # picks + bans needed before a champion gets a tier
@@ -68,19 +70,26 @@ def _slot_bucket(slot: int) -> str:
 
 
 def _spot_keys(c: dict, role: str, dims: tuple[str, ...] | None):
-    """(dimension, label, link) for every context a pick belongs to."""
+    """(dimension, label, link) for every context a pick belongs to. Solo queue games have no series,
+    draft order, format or team: their rank tier replaces those."""
     p = c["players"][role]
+    soloq = c.get("league") == SOLOQ
     keys = [("Side", "Blue" if c["side"] == 1 else "Red", None)]
     gn = c["game_number"]
-    if gn:
+    if gn and not soloq:
         keys.append(("Game de la série", f"Game {gn}" if gn < 4 else "Game 4+", None))
-    if p["slot"]:
+    if p["slot"] and not soloq:
         keys.append(("Moment de la draft", _slot_bucket(p["slot"]), None))
     keys.append(("Rôle", role, None))
     if dims is None:
-        keys.append(("Format", "Fearless" if c["fearless"] else "Draft classique", None))
+        if soloq:
+            if c.get("rank"):
+                keys.append(("Rang", c["rank"].title(), None))
+        else:
+            keys.append(("Format", "Fearless" if c["fearless"] else "Draft classique", None))
         keys.append(("Patch", c["patch"], None))
-        keys.append(("Équipe", c["team"], None))
+        if not soloq:
+            keys.append(("Équipe", c["team"], None))
         if p["player"]:
             keys.append(("Joueur", p["player"], None))
     return [k for k in keys if dims is None or k[0] in dims]

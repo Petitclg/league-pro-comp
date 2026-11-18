@@ -39,6 +39,9 @@ for _league in LEAGUES.values():
 
 DEFAULT_LEAGUE = "LCK"
 
+# Scope key of the solo queue games (Riot API, separate soloq.db): never combined with pro leagues.
+SOLOQ = "SOLOQ"
+
 INTERNATIONAL = {"WORLDS", "MSI", "FST"}
 
 # Game ids start with the organising league's name as written on Leaguepedia

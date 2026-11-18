@@ -7,12 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import importer, live, runtime, stats
+from . import importer, live, runtime, soloq, stats
 from .config import APP_NAME, STATIC_DIR, VERSION
 from .dataset import Dataset, Filters, get_dataset, league_summary
 from .db import ROLES
 from .denial import pair_denial, ranking
-from .leagues import DEFAULT_LEAGUE, LEAGUES
+from .leagues import DEFAULT_LEAGUE, LEAGUES, SOLOQ
+from .riot import PLATFORMS, TIERS, RiotError
 from .suggest import substitutes
 from .suggest import suggest as run_suggest
 
@@ -42,6 +43,10 @@ async def lifespan(_: FastAPI):
             importer.start_repair()
         except Exception:  # best effort: the app works with the data it has
             pass
+        try:
+            importer.resume_soloq()  # a solo queue import interrupted by closing the app goes on
+        except Exception:
+            pass
     yield
 
 
@@ -55,10 +60,13 @@ app.add_middleware(
 
 
 def selected_leagues(league: list[str] = Query([DEFAULT_LEAGUE])) -> tuple[str, ...]:
-    """Leagues of the scope (?league=LCK&league=LPL): their games are analysed together."""
-    unknown = [lg for lg in league if lg not in LEAGUES]
+    """Leagues of the scope (?league=LCK&league=LPL): their games are analysed together.
+    `SOLOQ` (solo queue games) is a scope of its own and cannot be combined with pro leagues."""
+    unknown = [lg for lg in league if lg not in LEAGUES and lg != SOLOQ]
     if unknown:
         raise HTTPException(404, f"Unknown league {', '.join(unknown)}")
+    if SOLOQ in league and len(set(league)) > 1:
+        raise HTTPException(422, "Solo queue cannot be combined with pro leagues")
     return tuple(sorted(set(league))) or (DEFAULT_LEAGUE,)
 
 
@@ -76,11 +84,14 @@ def filters(
     patch: list[str] | None = Query(None),
     fearless: bool | None = None,
     game_number: list[Annotated[int, Field(ge=1, le=7)]] | None = Query(None),
+    rank: list[str] | None = Query(None),
 ) -> Filters:
-    """Scope filters. List filters can be repeated (?team=T1&team=Gen.G) and match ANY value."""
+    """Scope filters. List filters can be repeated (?team=T1&team=Gen.G) and match ANY value.
+    `rank` (solo queue tier) only keeps solo queue games."""
     return Filters(
         teams=tuple(team or ()), tournaments=tuple(tournament or ()), years=tuple(year or ()),
         patches=tuple(patch or ()), fearless=fearless, game_numbers=tuple(game_number or ()),
+        ranks=tuple(rank or ()),
     )
 
 
@@ -102,9 +113,15 @@ def meta(ds: DS, leagues: Annotated[tuple[str, ...], Depends(selected_leagues)])
     tournaments: dict[str, str] = {}
     for g in ds.games:
         patches.setdefault(g["patch"], g["date"] or "")
-        tournaments.setdefault(g["tournament"], g["date"] or "")
+        if g["tournament"]:
+            tournaments.setdefault(g["tournament"], g["date"] or "")
     fearless_dates = [g["date"] for g in ds.games if g["fearless"] and g["date"]]
     years = sorted({g["date"][:4] for g in ds.games if g["date"]}, reverse=True)
+    present_ranks = {g.get("rank") for g in ds.games}
+    soloq_info = soloq.summary()
+    soloq_entry = [{"key": SOLOQ, "name": "Solo queue", "region": "Classé Émeraude+ (API Riot)", "level": "soloq",
+                    "games": soloq_info["games"], "first": (soloq_info["first"] or "")[:4],
+                    "last": (soloq_info["last"] or "")[:4]}] if soloq_info["games"] else []
     return {
         "selected": list(leagues),
         "leagues": [
@@ -112,7 +129,9 @@ def meta(ds: DS, leagues: Annotated[tuple[str, ...], Depends(selected_leagues)])
              "level": LEAGUES[s["league"]].get("level", "other"), "games": s["games"],
              "first": (s["first"] or "")[:4], "last": (s["last"] or "")[:4]}
             for s in league_summary() if s["league"] in LEAGUES
-        ],
+        ] + soloq_entry,
+        "soloq": leagues == (SOLOQ,),
+        "ranks": [t for t in TIERS if t in present_ranks],
         "roles": ROLES,
         "games": len(ds.games),
         "series": len(ds.series),
@@ -149,6 +168,7 @@ def _game_json(ds: Dataset, g: dict, matched: set[str] | None = None) -> dict:
         "fearless": g["fearless"],
         "locked": g["locked"],
         "winner": g["winner"],
+        "rank": g.get("rank"),
         "matched": matched is None or g["game_id"] in matched,
         "sides": sides,
         "highlights": stats.game_highlights(ds, g),
@@ -173,6 +193,7 @@ def _series_json(ds: Dataset, mid: str, matched: set[str]) -> dict:
         "date": first["date"],
         "best_of": match.get("best_of"),
         "fearless": first["fearless"],
+        "rank": first.get("rank"),
         "teams": teams,
         "score": [wins.get(teams[0], 0), wins.get(teams[1], 0)],
         "games": [_game_json(ds, g, matched) for g in games],
@@ -276,6 +297,7 @@ class SuggestRequest(BaseModel):
     years: list[str] = []
     patches: list[str] = []
     fearless: bool | None = None
+    ranks: list[str] = []
     expand: bool = False  # substitute look-alikes for locked champions the pros never played
 
     @field_validator("picks")
@@ -289,7 +311,7 @@ class SuggestRequest(BaseModel):
 
 def _suggest(req: "SuggestRequest", ds) -> dict:
     f = Filters(teams=tuple(req.teams), tournaments=tuple(req.tournaments), years=tuple(req.years),
-                patches=tuple(req.patches), fearless=req.fearless)
+                patches=tuple(req.patches), fearless=req.fearless, ranks=tuple(req.ranks))
     comps = ds.filter_comps(f)
     subs = substitutes(comps, req.picks, live.champion_profiles()) if req.expand and req.picks else None
     return run_suggest(comps, req.picks, set(req.unavailable), req.enemy, subs=subs, combos=stats.combo_index(ds, f).stats)
@@ -375,6 +397,118 @@ def import_start(req: ImportRequest):
 def import_cancel():
     importer.job.cancel()
     return importer.job.status()
+
+
+# --- solo queue (Riot API) ----------------------------------------------------
+
+class SoloqSettings(BaseModel):
+    platforms: list[str] = Field(default_factory=lambda: ["euw1"], min_length=1)
+    tiers: list[str] = Field(default_factory=lambda: list(TIERS), min_length=1)
+    target: int = Field(5000, ge=10, le=1_000_000)
+    min_patch: str = Field("", pattern=r"^(\d+\.\d+)?$")
+    patches_kept: int = Field(3, ge=0, le=100)
+    max_age_days: int = Field(30, ge=1, le=730)
+
+    @field_validator("platforms")
+    @classmethod
+    def known_platforms(cls, platforms):
+        bad = [p for p in platforms if p not in PLATFORMS]
+        if bad:
+            raise ValueError(f"Unknown platforms: {bad}")
+        return platforms
+
+    @field_validator("tiers")
+    @classmethod
+    def known_tiers(cls, tiers):
+        bad = [t for t in tiers if t not in TIERS]
+        if bad:
+            raise ValueError(f"Unknown tiers: {bad}")
+        return tiers
+
+
+class KeyRequest(BaseModel):
+    key: str = Field(pattern=r"^RGAPI-[0-9A-Za-z-]{8,80}$")
+
+
+def _soloq_overview() -> dict:
+    return {
+        "key": importer.key_status(),
+        "settings": importer.soloq_settings(),
+        "import": importer.soloq_job.status(),
+        "stored": soloq.summary(),
+        "platforms": [{"key": k, "label": label, "region": region} for k, (region, label) in PLATFORMS.items()],
+        "tiers": TIERS,
+    }
+
+
+@app.get("/api/soloq")
+def soloq_overview():
+    """Riot API key state (masked), import settings and progress, stored games."""
+    return _soloq_overview()
+
+
+def _check_key(key: str) -> bool:
+    try:
+        return importer.check_key(key, importer.soloq_settings()["platforms"][0])
+    except RiotError as exc:
+        raise HTTPException(503, f"Riot API unreachable: {exc}") from None
+
+
+@app.put("/api/soloq/key")
+def soloq_set_key(req: KeyRequest):
+    """Store a Riot API key after checking it with one cheap request; a rejected key is not stored."""
+    key = req.key.strip()
+    if not _check_key(key):
+        raise HTTPException(400, "Key rejected by Riot (expired or invalid)")
+    importer.store_key(key)
+    return importer.key_status()
+
+
+@app.post("/api/soloq/key/check")
+def soloq_check_key():
+    """Check the stored key again (development keys expire after 24 hours)."""
+    key = importer.riot_key()
+    if not key:
+        raise HTTPException(404, "No Riot API key")
+    importer.mark_key("valid" if _check_key(key) else "invalid")
+    return importer.key_status()
+
+
+@app.delete("/api/soloq/key")
+def soloq_delete_key():
+    importer.store_key(None)
+    return importer.key_status()
+
+
+@app.put("/api/soloq/settings")
+def soloq_set_settings(req: SoloqSettings):
+    """Saved now, used by the next import start."""
+    return importer.save_soloq_settings(req.model_dump())
+
+
+@app.get("/api/soloq/import")
+def soloq_import_status():
+    return importer.soloq_job.status()
+
+
+@app.post("/api/soloq/import")
+def soloq_import_start(req: SoloqSettings | None = None):
+    """Start (or resume) sampling solo queue games until the volume target; `req` replaces the saved settings."""
+    settings = importer.save_soloq_settings(req.model_dump()) if req else importer.soloq_settings()
+    key = importer.riot_key()
+    if not key:
+        raise HTTPException(400, "No Riot API key")
+    if importer.key_status()["state"] == "invalid":
+        raise HTTPException(400, "Riot API key expired or invalid")
+    if not importer.soloq_job.start(key, settings):
+        raise HTTPException(409, "A solo queue import is already running")
+    return importer.soloq_job.status()
+
+
+@app.post("/api/soloq/import/cancel")
+def soloq_import_cancel():
+    importer.soloq_job.cancel()
+    return importer.soloq_job.status()
 
 
 class FrontFiles(StaticFiles):
