@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import importer, items, live, runtime, soloq, stats
+from . import importer, items, live, runtime, soloq, stats, wpa
 from .config import APP_NAME, STATIC_DIR, VERSION
 from .dataset import Dataset, Filters, get_dataset, league_summary
 from .db import ROLES
@@ -535,6 +535,71 @@ def soloq_import_start(req: SoloqSettings | None = None):
 def soloq_import_cancel():
     importer.soloq_job.cancel()
     return importer.soloq_job.status()
+
+
+# --- win probability and WPA (solo queue timelines) -------------------------------------
+
+
+def _wpa_model() -> wpa.Model:
+    """The trained model; without one every WPA route but the status answers 503 with the reason."""
+    model, error = wpa.load_model()
+    if model is None:
+        raise HTTPException(503, wpa.unavailable_message(error))
+    return model
+
+
+def _soloq_game_ids(f: Filters) -> list[str]:
+    """Games of the solo queue scope (rank, region, patch, year), whatever `league` is."""
+    return [g["game_id"] for g in get_dataset((SOLOQ,)).filter_games(f)]
+
+
+@app.get("/api/wpa")
+def wpa_status():
+    return wpa.status()
+
+
+@app.get("/api/wpa/game/{game_id}")
+def wpa_game(game_id: str):
+    model = _wpa_model()
+    if not soloq.SOLOQ_DB_PATH.exists():
+        raise HTTPException(404, f"Unknown solo queue game {game_id}")
+    conn = soloq.connect()
+    try:
+        body = wpa.curve(conn, game_id, model)
+    except KeyError:
+        raise HTTPException(404, f"Unknown solo queue game {game_id}") from None
+    finally:
+        conn.close()
+    if body is None:
+        raise HTTPException(404, f"No usable timeline for {game_id}")
+    return body
+
+
+@app.get("/api/wpa/items")
+def wpa_items(f: F, min_n: int = Query(20, ge=1), limit: int = Query(200, ge=1, le=1000)):
+    model = _wpa_model()
+    return wpa.aggregate("items", _soloq_game_ids(f), model, min_n=min_n, limit=limit)
+
+
+@app.get("/api/wpa/events")
+def wpa_events(f: F):
+    model = _wpa_model()
+    return wpa.aggregate("events", _soloq_game_ids(f), model)
+
+
+@app.get("/api/wpa/champions")
+def wpa_champions(
+    f: F,
+    by: str = "champion",
+    role: str | None = None,
+    min_games: int = Query(5, ge=1),
+    limit: int = Query(100, ge=1, le=500),
+):
+    if by not in ("champion", "player"):
+        raise HTTPException(422, f"Unknown grouping {by}")
+    _check_role(role)
+    model = _wpa_model()
+    return wpa.aggregate("players", _soloq_game_ids(f), model, by=by, role=role, min_games=min_games, limit=limit)
 
 
 class FrontFiles(StaticFiles):

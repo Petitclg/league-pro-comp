@@ -28,7 +28,7 @@ from .leagues import SOLOQ
 from .riot import PLATFORMS, QUEUE_SOLO, TIERS, label_of, region_of
 
 SOLOQ_DB_PATH = DATA_DIR / "soloq.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: soloq_wpa
 LEAGUE_KEY = SOLOQ
 TEAMS = {1: "Blue", 2: "Red"}
 SIDE_OF_TEAM = {100: 1, 200: 2}
@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS soloq_timelines (
     kills BLOB,                         -- zlib(JSON) [[second, killer, victim, [assists]]]
     objectives BLOB,                    -- zlib(JSON) [[second, kind, side, detail]]
     items BLOB                          -- zlib(JSON) [[second, participant, P|S|D|U, item(, after)]]
+);
+-- Win probability of each game (curve, kills, objectives, purchases), computed by wpa.py per model.
+CREATE TABLE IF NOT EXISTS soloq_wpa (
+    match_id TEXT PRIMARY KEY REFERENCES soloq_games(match_id) ON DELETE CASCADE,
+    model TEXT NOT NULL,                -- SHA-256 of the wpa_model.json it was computed with
+    data BLOB                           -- 3 zlib sections (wpa.encode); NULL: unusable timeline
 );
 -- Import state, so that an import resumes where it stopped after a restart.
 CREATE TABLE IF NOT EXISTS soloq_ladder (
