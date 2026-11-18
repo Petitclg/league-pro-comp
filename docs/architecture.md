@@ -39,6 +39,8 @@ flowchart LR
 | `backend/app/soloq.py` | Base séparée `soloq.db` : schéma, extraction compacte des matchs et timelines, rétention par patch, chargement en `Dataset` |
 | `backend/app/soloq_ingest.py` | Échantillonnage solo queue : classement → joueurs graines → historiques → matchs, dédoublonnage, étiquette de rang |
 | `backend/app/items.py` | Analyses d'objets (solo queue) : catalogue Data Dragon par patch, reconstruction des builds depuis les événements d'objets, ordre et timing d'achat, chemins de build, winrates comparés à l'attendu |
+| `backend/app/wpa.py` | Probabilité de victoire et WPA : variables d'état, évaluation en Python pur du modèle `wpa_model.json`, WPA des objets et des événements, cache `soloq_wpa` rempli par une tâche de fond, agrégats |
+| `backend/tools/train_wpa.py` | Outil de développement (scikit-learn, `requirements-ml.txt`, jamais dans l'exécutable) : entraînement, évaluation et export JSON du modèle de probabilité de victoire |
 | `backend/app/config.py` | Dossier de données et réglages locaux (`settings.json` : clé API Riot, options d'import solo queue) |
 | `backend/app/desktop.py`, `launcher.py`, `runtime.py` | Application de bureau, instance unique, arrêt |
 | `backend/app/updater.py` | Mise à jour automatique |

@@ -96,6 +96,7 @@ erDiagram
     soloq_games ||--|{ soloq_players : "match_id"
     soloq_games ||--o{ soloq_bans : "match_id"
     soloq_games ||--o| soloq_timelines : "match_id"
+    soloq_games ||--o| soloq_wpa : "match_id"
     soloq_games {
         text match_id PK "EUW1_7212345678"
         text platform "euw1, kr..."
@@ -144,6 +145,10 @@ erDiagram
         blob objectives
         blob items
     }
+    soloq_wpa {
+        text model "SHA-256 du modèle:WPA_REVISION"
+        blob data "NULL si timeline inutilisable"
+    }
 ```
 
 Les blobs de `soloq_timelines` sont du JSON compressé par zlib (décodés par `soloq.load_timeline`) :
@@ -154,6 +159,8 @@ Les blobs de `soloq_timelines` sont du JSON compressé par zlib (décodés par `
 | `kills` | `[seconde, tueur, victime, [assistants]]` |
 | `objectives` | `[seconde, type, côté qui prend l'objectif, détail]` : `tower`, `inhibitor`, `plate` (détail : voie), `dragon` (détail : élément), `herald`, `grub`, `baron`, `atakhan` |
 | `items` | `[seconde, participant, action, objet(, objet après)]` : `P` achat, `S` vente, `D` destruction, `U` annulation (`ITEM_UNDO`, avec l'objet avant / après) |
+
+`soloq_wpa` (version de schéma 2) est un cache calculé par [wpa.py](../backend/app/wpa.py) (REQ-WPA-9), pour la clé `<SHA-256 du modèle>:<WPA_REVISION>`. `data` contient trois sections compressées séparément par zlib (`wpa.encode`), pour que chaque route ne décode que ce qu'elle lit : un résumé JSON (joueurs, nombre et somme des ΔW par type d'événement, kills avec tueur, victime et ΔW), les achats regroupés par (objet, contexte) en tableaux binaires (nombre, somme de *W*, somme de ΔW) et la courbe JSON (*W* par minute, événements). Environ 3 Ko par partie ; `data` nul marque une timeline inutilisable. Les lignes d'une autre clé sont supprimées au premier calcul d'une nouvelle clé ; une ligne disparaît avec sa partie.
 
 Tables d'état de l'import (reprise après un arrêt ou un redémarrage) :
 

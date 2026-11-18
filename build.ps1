@@ -51,6 +51,7 @@ try {
     & $python -m PyInstaller --noconfirm --clean --onefile --noconsole --name LoLProComp --icon "$root\backend\assets\icon.ico" `
         --add-data "$root\frontend\dist;static" `
         --exclude-module pytest --exclude-module matplotlib --exclude-module numpy `
+        --exclude-module sklearn --exclude-module scipy --exclude-module pandas `
         --distpath $OutDir --workpath "$work\build" --specpath "$work\spec" launcher.py
     $exit = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
