@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type GameData, type Highlight, type HighlightType, type SeriesData, type SeriesQuery, type SideDraft, ROLE_LABEL } from './api'
 import { Champ } from './Champ'
+import { href } from './router'
 import { RANK_LABEL, useScope } from './scope'
 import { formatDuration } from './utils'
 
@@ -101,6 +102,7 @@ function Chips({ highlights }: { highlights: Highlight[] }) {
 
 function GameRow({ game, focus }: { game: GameData; focus: string[] }) {
   const [showLocked, setShowLocked] = useState(false)
+  const { meta } = useScope()
   return (
     <div className={`game-row${game.matched ? '' : ' dim'}`}>
       <div className="game-grid">
@@ -108,6 +110,11 @@ function GameRow({ game, focus }: { game: GameData; focus: string[] }) {
           <strong>{game.rank ? (RANK_LABEL[game.rank] ?? game.rank) : `Game ${game.game_number ?? '?'}`}</strong>
           <span>{formatDuration(game.duration)}</span>
           <span className="muted">{game.patch}</span>
+          {meta.soloq && (
+            <a href={href('winprob', game.game_id)} title="Courbe de probabilité de victoire de la partie">
+              📈 Probabilité
+            </a>
+          )}
         </div>
         <SideBlock game={game} side={1} focus={focus} />
         <SideBlock game={game} side={2} focus={focus} />

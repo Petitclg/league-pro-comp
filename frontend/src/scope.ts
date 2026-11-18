@@ -43,3 +43,11 @@ export function filtersForScope(f: Filters, soloq: boolean): Filters {
     ? { ...f, team: undefined, fearless: undefined, game_number: undefined }
     : { ...f, rank: undefined }
 }
+
+/** Synergies contrées need the draft order (pro only); items and the win probability need solo queue timelines. */
+export function tabVisible(id: string, soloq: boolean): boolean {
+  if (id === 'countered') return !soloq
+  if (id === 'items') return soloq
+  if (id === 'winprob') return soloq
+  return true
+}
