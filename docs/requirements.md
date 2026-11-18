@@ -6,7 +6,7 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 
 ## Périmètre
 
-- Dans le périmètre : import depuis Leaguepedia, import de parties classées solo queue (Émeraude et plus) via l'API Riot avec la clé de l'utilisateur, analyses statistiques, interface web locale, application de bureau Windows (exécutable unique), mise à jour automatique.
+- Dans le périmètre : import depuis Leaguepedia, import de parties classées solo queue (Émeraude et plus) via l'API Riot avec la clé de l'utilisateur, analyses statistiques, probabilité de victoire et WPA (*Win Probability Added*) sur les parties solo queue, interface web locale, application de bureau Windows (exécutable unique), mise à jour automatique.
 - Hors périmètre : compte utilisateur, hébergement multi-utilisateur, données de matchs en direct, affiliation Riot Games.
 
 ## Utilisateurs
@@ -43,6 +43,23 @@ Analyser les drafts du LoL professionnel (2017 → aujourd'hui) et aider à cons
 | REQ-SOLOQ-5 | **Échantillonnage et rang** : joueurs graines tirés du classement, rang le moins rempli en premier ; leurs 20 dernières parties classées sont dédoublonnées contre les parties stockées, ignorées ou en attente. Une partie porte le tier majoritaire des graines qui l'ont trouvée (le plus haut en cas d'égalité). | `soloq_ingest.Sampler`, `test_soloq.py` |
 | REQ-SOLOQ-6 | **Reprise** : l'état de l'import (classement, graines, file, parties ignorées) est en base ; un import arrêté reprend sans retélécharger, et un import interrompu par la fermeture de l'application reprend au lancement suivant. L'import continue jusqu'à l'objectif de volume ; seuls les N derniers patchs sont gardés. | `test_soloq.py::test_interrupted_import_resumes_where_it_stopped` |
 | REQ-SOLOQ-7 | **Périmètre « Solo queue »** : proposé à côté des ligues, jamais combiné avec elles ; filtre de rang et de région ; toutes les pages fonctionnent. Une partie solo queue est une série d'une game Blue / Red, jamais Fearless ; l'ordre de pick, inconnu, est fictif et les statistiques de draft sont masquées. | `test_soloq.py::test_api_soloq_scope_with_rank_filter`, `scope.test.ts` |
+
+### Probabilité de victoire et WPA (WPA)
+
+Méthode reprise du mémoire *Win probability estimation for strategic decision-making in esports* (xPetu, Université Aalto, 2024, licence CC BY-NC-SA 4.0) : un modèle estime la probabilité de victoire *w(x)* d'un état de partie *x* ; la valeur d'une action est le WPA *w(z) − w(x)* entre l'état *x* où elle est prise et l'état *z* où son effet s'arrête. L'action n'est jamais une variable du modèle (action ≠ état). Seule la solo queue a des timelines publiques : tout le module porte sur `soloq.db`.
+
+| ID | Exigence | Vérifié par |
+|---|---|---|
+| REQ-WPA-1 | **Variables d'état** : un état à la seconde *t* d'une partie est décrit, du point de vue de Blue, par la minute de jeu, les écarts Blue − Red d'or total, XP, niveaux cumulés, CS, kills, morts, assists et dégâts aux champions (frame de la minute ⌊*t*/60⌋), les écarts d'objectifs pris jusqu'à *t* (tours, inhibiteurs, plaques, dragons, hérauts, larves, barons, Atakhan), les dragons de chaque équipe et le rang de la partie (ordinal Émeraude = 0 … Challenger = 4). Les mêmes fonctions (`wpa.state_at`, `wpa.features`) servent à l'entraînement et à l'inférence. Aucun objet, champion ou action n'est une variable. | `wpa.py`, `test_wpa.py` |
+| REQ-WPA-2 | **Entraînement hors ligne** : un outil de développement (`backend/tools/train_wpa.py`, dépendances `backend/requirements-ml.txt`, jamais embarqués dans l'exécutable) lit `soloq.db`, sépare les parties en entraînement / test (80 / 20, par partie) et tire **un état au hasard par tranche de 5 minutes de chaque partie** (décorrélation des échantillons), étiqueté par la victoire de Blue. Il entraîne un classifieur à arbres de gradient boosting (scikit-learn) et l'exporte en JSON. | `test_wpa.py::test_sampling_draws_one_state_per_five_minute_bucket`, `test_wpa.py::test_training_script_smoke` (si scikit-learn est installé) |
+| REQ-WPA-3 | **Évaluation** : sur le jeu de test, l'outil mesure accuracy, log loss, score de Brier, erreur de calibration (ECE, 10 classes de probabilité) et la courbe de fiabilité ; il vérifie que le modèle JSON reproduit les probabilités de la bibliothèque (écart max < 1e-9). Ces métriques sont écrites dans le fichier du modèle et affichées par l'application. | `train_wpa.py`, `wpa.calibration`, `test_wpa.py` |
+| REQ-WPA-4 | **Inférence en Python pur** : l'application charge `wpa_model.json` depuis le dossier de données et évalue les arbres avec la bibliothèque standard uniquement (ni numpy, ni pandas, ni scikit-learn dans l'exécutable). Le fichier est validé (format, version, variables connues, arbres bien formés) et rechargé quand il change ; son empreinte SHA-256 identifie le modèle. Aucun modèle par défaut n'est livré. | `wpa.load_model`, `test_wpa.py::test_evaluator_matches_hand_computed_model` |
+| REQ-WPA-5 | **Sans modèle** : sans fichier ou avec un fichier invalide, la fonctionnalité est désactivée avec un message clair (cause et commande d'entraînement) ; `/api/wpa` le décrit, les autres routes WPA répondent 503 avec ce message ; le reste de l'application fonctionne normalement. | `test_wpa.py::test_no_model_disables_the_feature_gracefully` |
+| REQ-WPA-6 | **Courbe d'une partie** : pour une partie solo queue avec timeline, probabilité de victoire de Blue à chaque minute et après chaque kill ou objectif, avec le ΔW de l'événement ; affichée en graphique (page « Probabilité de victoire », lien depuis chaque partie solo queue de la page Drafts). | `test_wpa.py::test_api_game_curve`, `WinProbPage.tsx` |
+| REQ-WPA-7 | **WPA d'un objet** : pour chaque achat, *x* = état à l'achat et *z* = état à la première revente ou destruction de cet objet par le même joueur, sinon à la fin de la partie ; ΔW = *w(z) − w(x)* du point de vue de l'équipe de l'acheteur. Un achat annulé (`ITEM_UNDO`) est ignoré, une revente annulée rouvre l'objet. Par objet : nombre d'achats, *W* moyen à l'achat, ΔW moyen, et ΔW par contexte de *W* à l'achat (en retard *W* < 0,4, équilibré, en avance *W* > 0,6) comparé à la moyenne de tous les achats du même contexte (excès) ; profil « comeback » ou « snowball » quand l'excès en retard et l'excès en avance diffèrent d'au moins 2 points (au moins 10 achats dans chacun). Exposé par une route dédiée pour la page Objets. | `test_wpa.py::test_item_wpa_follows_purchase_to_sale_or_end`, `test_wpa.py::test_api_items` |
+| REQ-WPA-8 | **WPA des événements** : ΔW immédiat d'un kill ou d'un objectif = *w*(état avec l'événement) − *w*(état sans), à la même frame, du point de vue de l'équipe qui le réalise. Agrégé par type d'objectif et pour les kills ; par champion (ou par joueur, Riot ID) : WPA moyen par partie de ses kills, de ses morts et total, avec un minimum de parties. | `test_wpa.py::test_event_wpa_and_champion_aggregates` |
+| REQ-WPA-9 | **Cache** : le résultat de chaque partie (achats, kills, objectifs) est calculé une fois par modèle et gardé dans `soloq.db` (table `soloq_wpa`) ; il est recalculé quand le modèle change et supprimé avec la partie. Les routes suivent les filtres du périmètre solo queue (rang, région, patch, année). | `test_wpa.py::test_per_game_results_are_cached_per_model` |
+| REQ-WPA-10 | **Avertissements** affichés dans l'interface et renvoyés par l'API : (1) modèle entraîné en solo queue, non transposable directement au pro (aucune timeline pro publique) ; (2) biais de sélection des actions : un objet ou un événement est choisi selon la situation, le WPA mesure une association, pas un effet causal ; (3) modèle entraîné sur des données synthétiques quand c'est le cas (`source = synthetic`). | `test_wpa.py::test_api_status_reports_model_and_warnings` |
 
 ### Analyses (STAT)
 
@@ -218,7 +235,7 @@ Accessibilité : l'avertissement porte `role="note"` et un titre de niveau 3 « 
 | REQ-UI-3 | Le périmètre (ligues, filtres) est global et persisté localement. | `scope.ts`, `App.tsx` |
 | REQ-UI-6 | **Suivi de navigation** : chaque page garde ses réglages (tri, rôles, minimums, champion filtré) quand on la quitte et au redémarrage ; la draft en cours du tracker (picks, picks adverses, bans, champions Fearless, mode élargi) est conservée, avec un bouton « Nouvelle draft » pour la vider ; un lancement sans page dans l'adresse rouvre la dernière page visitée. Le tracker et l'envoi dans le chat restent désactivés au démarrage. | `usePersistentState` (`utils.ts`), `router.ts` |
 | REQ-UI-4 | Recherche de champion tolérante (accents, apostrophes, surnoms, fautes). | `fuzzy.test.ts` |
-| REQ-UI-5 | Pages : Drafts, Champions, Paires, Synergies contrées (pro), Objets (solo queue, REQ-ITEM-1), Records, Suggestions / Tracker, Données. | `App.tsx` |
+| REQ-UI-5 | Pages : Drafts, Champions, Paires, Synergies contrées (pro), Objets (solo queue, REQ-ITEM-1), Records, Suggestions / Tracker, Données ; en solo queue, Probabilité de victoire (REQ-WPA-6 à 10). | `App.tsx` |
 
 ### Suggestions et tracker (SUG)
 
@@ -248,7 +265,7 @@ Accessibilité : l'avertissement porte `role="note"` et un titre de niveau 3 « 
 | REQ-NFR-1 | Au plus 3 combinaisons de ligues en mémoire ; rechargement automatique quand le fichier de base change (au plus une fois par minute pour `soloq.db` pendant un import). |
 | REQ-NFR-2 | Les analyses lourdes du périmètre par défaut sont préchauffées au démarrage. |
 | REQ-NFR-3 | Le serveur n'écoute qu'en local ; `/api/quit` exige un en-tête personnalisé (protection CORS). |
-| REQ-NFR-4 | Les données importées conservent la licence CC BY-SA 3.0 de Leaguepedia ; images (champions et objets) via Data Dragon. |
+| REQ-NFR-4 | Les données importées conservent la licence CC BY-SA 3.0 de Leaguepedia ; images (champions et objets) via Data Dragon. La méthode WPA cite le mémoire de xPetu (Université Aalto, 2024, CC BY-NC-SA 4.0) dont elle reprend l'approche ; aucun contenu n'en est copié. |
 | REQ-NFR-5 | Tests backend (pytest) et frontend (vitest) verts avant toute release ; la CI publie l'exécutable et l'installateur avec leur SHA-256. |
 
 ## Critères d'acceptation transverses

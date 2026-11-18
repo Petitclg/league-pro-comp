@@ -43,6 +43,11 @@ Les filtres entre eux sont combinés en ET.
 | GET | `/api/soloq/import` | Progression : `state` (`idle`, `running`, `done`, `exhausted`, `error`, `cancelled`), `games`, `target`, `added`, `current`, `waiting` (pause de limite de débit), `log`, `error`, `key_rejected` |
 | POST | `/api/soloq/import` | Démarre ou reprend l'import (corps facultatif : réglages, enregistrés) ; 400 sans clé ou clé invalide, 409 si déjà en cours |
 | POST | `/api/soloq/import/cancel` | Arrête l'import (il reprendra là où il en était) |
+| GET | `/api/wpa` | Modèle de probabilité de victoire : `available`, `message` (raison et commande d'entraînement quand il n'y a pas de modèle utilisable), `model` (`id`, `source` `soloq` ou `synthetic`, `trained_at`, `games`, `samples`, `features`, `metrics` : `accuracy`, `log_loss`, `brier`, `ece`, `reliability`), `warnings` (REQ-WPA-10). Toujours 200 |
+| GET | `/api/wpa/game/{game_id}` | Courbe d'une partie solo queue : `minutes` (probabilité de victoire de Blue à chaque minute), `events` (`t` en secondes, `kind` `kill` ou type d'objectif, `side` qui le réalise, `detail`, `champion`, `victim`, `w` = probabilité de Blue après l'événement, `dw` = ΔW pour `side`), `winner`, `duration`, `tier`. 404 si la partie ou sa timeline est inconnue, 503 sans modèle |
+| GET | `/api/wpa/items` | WPA par objet (identifiant Riot) sur les parties du périmètre solo queue (`rank`, `tournament` = région, `patch`, `year`) ; `min_n` (achats minimum, défaut 20), `limit` ≤ 1000. `baseline` : `n` et `dw` moyen de tous les achats, globalement et par contexte (`behind`, `even`, `ahead`) ; `items` : `item`, `n`, `w` (*W* moyen à l'achat), `dw`, `contexts` (`n`, `dw`, `excess` par contexte), `profile` (`comeback`, `snowball`, `neutral` ou `null`). 503 sans modèle |
+| GET | `/api/wpa/events` | WPA des événements du périmètre : `kills` (`n`, `dw`), `objectives` (`kind`, `n`, `dw`). 503 sans modèle |
+| GET | `/api/wpa/champions` | WPA des kills et morts par champion (`by=champion`, défaut) ou par joueur (`by=player`) ; `role`, `min_games` (défaut 5), `limit` ≤ 500. Lignes : `champion` ou `player`, `games`, `wpa`, `kills_wpa`, `deaths_wpa` (moyennes par partie). 422 si `by` est inconnu, 503 sans modèle |
 | GET | `/api/health` | Identité et version (détection d'instance existante) |
 | POST | `/api/heartbeat` | Ping de la fenêtre de bureau |
 | POST | `/api/quit` | Arrêt demandé par une instance plus récente ; 403 sans en-tête `X-Requested-With`, 409 si import en cours ou hors mode bureau |
@@ -121,5 +126,20 @@ Réponse sans build (champion absent du périmètre, filtres trop stricts) : sta
   "levels": [{"key": "strong", "z": 2.33, "min_games": 30, "by_chance": 0.0}, {"key": "likely", "z": 1.64, "min_games": 20, "by_chance": 0.0}, {"key": "hint", "z": 1.28, "min_games": 12, "by_chance": 0.0}],
   "reference": null,
   "options": {"players": [{"player": "Name#EUW", "games": 12}], "opponents": [{"champion": "Zed", "games": 30}]}
+}
+```
+
+## Probabilités et WPA
+
+Toutes les probabilités et tous les ΔW sont des fractions (0,62 = 62 %). Les routes `/api/wpa/*` lisent toujours `soloq.db`, quel que soit `league`. Les ΔW sont donnés du point de vue de l'équipe qui agit (acheteur, tueur, équipe qui prend l'objectif) ; la courbe (`minutes`, `w`) est toujours celle de Blue.
+
+```json
+{
+  "items": [
+    {"item": 3031, "n": 412, "w": 0.55, "dw": 0.031, "profile": "snowball",
+     "contexts": {"behind": {"n": 80, "dw": -0.01, "excess": -0.02},
+                  "even": {"n": 200, "dw": 0.03, "excess": 0.0},
+                  "ahead": {"n": 132, "dw": 0.06, "excess": 0.03}}}
+  ]
 }
 ```
